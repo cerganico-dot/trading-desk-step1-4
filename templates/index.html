@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ARG Trading Desk</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
+    .wrap { max-width: 1480px; margin: 0 auto; padding: 20px; }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
+    .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
+    .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; }
+    .muted { color:#94a3b8; font-size:12px; } table { width:100%; border-collapse: collapse; }
+    th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; }
+    th { color:#93c5fd; position: sticky; top: 0; background:#111827; }
+    tr:hover { background:#172554; } .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
+    .pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; } .buy { background:#052e16; color:#86efac; } .sell { background:#450a0a; color:#fca5a5; } .none { background:#1f2937; color:#cbd5e1; }
+    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; } .kv div:nth-child(odd) { color:#93c5fd; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="grid">
+    <div class="card span-12"><h1>ARG Trading Desk</h1><div class="muted" id="modeLabel">Cargando...</div></div>
+    <div class="card span-4"><h3>Riesgo</h3><div id="riskBox" class="kv"></div></div>
+    <div class="card span-8"><h3>Notas</h3><ul id="notes"></ul></div>
+    <div class="card span-12"><h3>Z-Score histórico</h3><div id="zscoreChart" style="height:420px;"></div></div>
+    <div class="card span-6"><h3>Oportunidades</h3><div class="log-wrap"><table><thead><tr><th>Hora</th><th>Par</th><th>Operación</th><th>Z</th><th>Edge</th><th>Filtro</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
+    <div class="card span-6"><h3>Paper trading</h3><div class="log-wrap"><table><thead><tr><th>Hora</th><th>Evento</th><th>Par</th><th>Side</th><th>PnL</th></tr></thead><tbody id="paperBody"></tbody></table></div></div>
+    <div class="card span-6"><h3>Alertas enviadas</h3><div class="log-wrap"><table><thead><tr><th>Hora</th><th>Par</th><th>Señal</th><th>Z</th><th>Canal</th></tr></thead><tbody id="alertsBody"></tbody></table></div></div>
+    <div class="card span-6"><h3>Posiciones abiertas</h3><div class="log-wrap"><table><thead><tr><th>Par</th><th>Side</th><th>Entry Z</th><th>Entry Ratio</th><th>Notional</th></tr></thead><tbody id="positionsBody"></tbody></table></div></div>
+  </div>
+</div>
+<script>
+let stateCache = null;
+function fmt(n, digits=4){ if(n===null || n===undefined || Number.isNaN(Number(n))) return '-'; return Number(n).toLocaleString('es-AR',{maximumFractionDigits:digits}); }
+function renderRisk(r){ document.getElementById('riskBox').innerHTML = `
+  <div>Capital</div><div>${fmt(r.capital,2)}</div>
+  <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
+  <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
+  <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
+  <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
+  <div>Utilización</div><div>${fmt((r.utilization_pct||0)*100,2)}%</div>
+  <div>Status</div><div>${r.status||'-'}</div>`; }
+function renderNotes(notes){ const el=document.getElementById('notes'); el.innerHTML=''; (notes||[]).forEach(n=>{const li=document.createElement('li'); li.textContent=n; el.appendChild(li);}); }
+function renderChart(s){ const x=s.series_timestamps||[]; const zh=s.zscore_history||{}; const keys=Object.keys(zh).filter(k=>Array.isArray(zh[k])&&zh[k].length); if(!x.length||!keys.length){ document.getElementById('zscoreChart').innerHTML='<div class="muted">Sin histórico suficiente.</div>'; return; } const traces=keys.map(k=>({x:x,y:zh[k],mode:'lines+markers',name:k})); Plotly.newPlot('zscoreChart', traces, {paper_bgcolor:'#111827',plot_bgcolor:'#111827',font:{color:'#e5e7eb'},margin:{t:20,r:20,b:50,l:50},xaxis:{title:'Hora'},yaxis:{title:'Z-Score'}},{responsive:true}); }
+function signalClass(sig){ return String(sig||'').startsWith('BUY')?'buy':String(sig||'').startsWith('SELL')?'sell':'none'; }
+function renderRows(id, items, rowBuilder){ const body=document.getElementById(id); body.innerHTML=''; (items||[]).slice().reverse().forEach(item=>{ const tr=document.createElement('tr'); tr.innerHTML=rowBuilder(item); body.appendChild(tr); }); }
+function renderAll(s){ stateCache=s; document.getElementById('modeLabel').textContent=`Modo: ${s.mode||'?'}`; renderRisk(s.risk_report||{}); renderNotes(s.notes||[]); renderChart(s);
+  renderRows('logBody', s.opportunity_log, item=>`<td>${item.time||'-'}</td><td>${item.pair||'-'}</td><td><span class="pill ${signalClass(item.signal)}">${item.signal||'NO TRADE'}</span></td><td>${fmt(item.zscore,4)}</td><td>${fmt(item.edge_bps,2)}</td><td>${item.eligible===false?(item.reject_reason||'Rechazada'):'OK'}</td>`);
+  renderRows('paperBody', s.paper_events, item=>`<td>${item.time||'-'}</td><td>${item.event_type||'-'}</td><td>${item.pair||'-'}</td><td>${item.side||'-'}</td><td>${fmt(item.pnl_currency,2)}</td>`);
+  renderRows('alertsBody', s.alerts_sent, item=>`<td>${item.time||'-'}</td><td>${item.pair||'-'}</td><td>${item.signal||'-'}</td><td>${fmt(item.zscore,4)}</td><td>${(item.channels||[]).join(', ')}</td>`);
+  renderRows('positionsBody', s.paper_positions, item=>`<td>${item.pair||'-'}</td><td>${item.side||'-'}</td><td>${fmt(item.entry_zscore,4)}</td><td>${fmt(item.entry_ratio,8)}</td><td>${fmt(item.size_notional,2)}</td>`); }
+async function refresh(){ const r=await fetch('/api/state'); const data=await r.json(); renderAll(data);} refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>
