@@ -10,7 +10,10 @@
     .wrap { max-width: 1480px; margin: 0 auto; padding: 20px; }
     .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
     .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
-    .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; }
+    .span-12 { grid-column: span 12; }
+    .span-8 { grid-column: span 8; }
+    .span-6 { grid-column: span 6; }
+    .span-4 { grid-column: span 4; }
     .muted { color:#94a3b8; font-size:12px; }
     table { width:100%; border-collapse: collapse; }
     th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; }
@@ -26,6 +29,7 @@
     .close { background:#3f6212; color:#d9f99d; }
     .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
     .kv div:nth-child(odd) { color:#93c5fd; }
+    .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
   </style>
 </head>
 <body>
@@ -34,6 +38,7 @@
     <div class="card span-12">
       <h1>ARG Trading Desk</h1>
       <div class="muted" id="modeLabel">Cargando...</div>
+      <div class="warn" id="debugBox"></div>
     </div>
 
     <div class="card span-4">
@@ -131,7 +136,7 @@ let stateCache = null;
 let selectedPoint = null;
 
 function fmt(n, digits = 4) {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return '-';
+  if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
   return Number(n).toLocaleString('es-AR', { maximumFractionDigits: digits });
 }
 
@@ -146,6 +151,12 @@ function paperClass(ev) {
   if (t.includes('OPEN') || t.includes('ENTRY')) return 'open';
   if (t.includes('CLOSE') || t.includes('EXIT')) return 'close';
   return 'none';
+}
+
+function normalizeIndex(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function renderRisk(r) {
@@ -170,70 +181,124 @@ function renderNotes(notes) {
   });
 }
 
-function normalizeIndex(v) {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+function getSeriesKeys(s) {
+  const zh = s.zscore_history || {};
+  return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
+}
+
+function getEventIndexFromTime(item, x) {
+  const possibleTimes = [
+    item.timestamp,
+    item.time,
+    item.event_time,
+    item.entry_time,
+    item.exit_time
+  ].filter(Boolean).map(v => String(v));
+
+  if (!possibleTimes.length) return null;
+
+  for (const t of possibleTimes) {
+    const exactIdx = x.findIndex(v => String(v) === t);
+    if (exactIdx >= 0) return exactIdx;
+  }
+
+  for (const t of possibleTimes) {
+    const partialIdx = x.findIndex(v => String(v).includes(t) || t.includes(String(v)));
+    if (partialIdx >= 0) return partialIdx;
+  }
+
+  return null;
 }
 
 function resolveEventIndex(item, x) {
   const direct = normalizeIndex(item.series_index);
   if (direct !== null && direct >= 0 && direct < x.length) return direct;
+  return getEventIndexFromTime(item, x);
+}
 
-  const ts = item.timestamp || item.time || item.event_time;
-  if (!ts) return null;
+function getEventPair(item, keys) {
+  if (item.pair && keys.includes(item.pair)) return item.pair;
 
-  const idx = x.findIndex(v => String(v) === String(ts));
-  if (idx >= 0) return idx;
+  const candidates = [
+    item.pair,
+    item.symbol,
+    item.instrument,
+    item.ticker
+  ].filter(Boolean).map(v => String(v));
+
+  for (const c of candidates) {
+    if (keys.includes(c)) return c;
+  }
+
+  for (const c of candidates) {
+    const found = keys.find(k => c.includes(k) || k.includes(c));
+    if (found) return found;
+  }
 
   return null;
 }
 
 function buildPaperEventTraces(s, x) {
   const events = Array.isArray(s.paper_events) ? s.paper_events : [];
-  const traces = [];
-
+  const keys = getSeriesKeys(s);
   const grouped = {};
+  let plottedCount = 0;
 
   events.forEach(item => {
-    const pair = item.pair || 'N/A';
+    const pair = getEventPair(item, keys);
+    if (!pair) return;
+
     const idx = resolveEventIndex(item, x);
-    if (idx === null) return;
+    if (idx === null || idx < 0 || idx >= x.length) return;
+
+    const zHistory = s.zscore_history[pair];
+    if (!Array.isArray(zHistory) || zHistory[idx] === null || zHistory[idx] === undefined) return;
 
     if (!grouped[pair]) {
-      grouped[pair] = { x: [], y: [], text: [] };
+      grouped[pair] = { x: [], y: [], text: [], symbols: [], sizes: [] };
     }
 
-    const zHistory = s.zscore_history && s.zscore_history[pair];
-    const yVal = Array.isArray(zHistory) ? zHistory[idx] : null;
-    if (yVal === null || yVal === undefined) return;
+    const eventType = String(item.event_type || item.event || '').toUpperCase();
+    const isClose = eventType.includes('CLOSE') || eventType.includes('EXIT');
+    const symbol = isClose ? 'diamond-open' : 'diamond';
+    const size = isClose ? 12 : 11;
 
     grouped[pair].x.push(x[idx]);
-    grouped[pair].y.push(yVal);
+    grouped[pair].y.push(zHistory[idx]);
     grouped[pair].text.push(
-      `${item.event_type || 'EVENT'} | ${pair} | ${item.side || '-'} | PnL: ${fmt(item.pnl_currency, 2)}`
+      [
+        item.time || item.timestamp || '-',
+        item.event_type || item.event || 'EVENT',
+        pair,
+        item.side || '-',
+        `PnL: ${fmt(item.pnl_currency, 2)}`
+      ].join(' | ')
     );
+    grouped[pair].symbols.push(symbol);
+    grouped[pair].sizes.push(size);
+    plottedCount += 1;
   });
 
-  Object.keys(grouped).forEach(pair => {
-    traces.push({
-      x: grouped[pair].x,
-      y: grouped[pair].y,
-      text: grouped[pair].text,
-      mode: 'markers',
-      type: 'scatter',
-      name: `Paper ${pair}`,
-      marker: { size: 11, symbol: 'diamond' },
-      hovertemplate: '%{text}<extra></extra>'
-    });
-  });
+  const traces = Object.keys(grouped).map(pair => ({
+    x: grouped[pair].x,
+    y: grouped[pair].y,
+    text: grouped[pair].text,
+    mode: 'markers',
+    type: 'scatter',
+    name: `Paper ${pair}`,
+    marker: {
+      size: grouped[pair].sizes,
+      symbol: grouped[pair].symbols,
+      line: { width: 2 }
+    },
+    hovertemplate: '%{text}<extra></extra>'
+  }));
 
-  return traces;
+  return { traces, plottedCount };
 }
 
 function buildSelectedPointTrace(s, x) {
   if (!selectedPoint || !selectedPoint.pair) return null;
-
   const pair = selectedPoint.pair;
   const idx = normalizeIndex(selectedPoint.series_index);
 
@@ -258,7 +323,7 @@ function buildSelectedPointTrace(s, x) {
 function renderChart(s) {
   const x = s.series_timestamps || [];
   const zh = s.zscore_history || {};
-  const keys = Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
+  const keys = getSeriesKeys(s);
 
   if (!x.length || !keys.length) {
     document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente.</div>';
@@ -274,57 +339,37 @@ function renderChart(s) {
     hovertemplate: `${k}<br>%{x}<br>Z: %{y}<extra></extra>`
   }));
 
-  const paperEventTraces = buildPaperEventTraces(s, x);
+  const paper = buildPaperEventTraces(s, x);
   const selectedTrace = buildSelectedPointTrace(s, x);
 
   if (selectedTrace) traces.push(selectedTrace);
-  traces.push(...paperEventTraces);
+  traces.push(...paper.traces);
 
   Plotly.newPlot(
     'zscoreChart',
     traces,
     {
-      paper_bgcolor: '#111827',
-      plot_bgcolor: '#111827',
-      font: { color: '#e5e7eb' },
-      margin: { t: 20, r: 20, b: 50, l: 50 },
-      xaxis: { title: 'Hora' },
-      yaxis: { title: 'Z-Score' },
-      legend: { orientation: 'h' }
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e5e7eb' },
+      margin:{ t:20, r:20, b:50, l:50 },
+      xaxis:{ title:'Hora' },
+      yaxis:{ title:'Z-Score' },
+      legend:{ orientation:'h' }
     },
-    { responsive: true, displayModeBar: false }
+    { responsive:true, displayModeBar:false }
   );
+
+  const totalEvents = Array.isArray(s.paper_events) ? s.paper_events.length : 0;
+  document.getElementById('debugBox').textContent =
+    totalEvents > 0 && paper.plottedCount === 0
+      ? `Paper events detectados: ${totalEvents}, pero no se pudieron mapear al gráfico.`
+      : '';
 }
 
 function setActiveRow(tbodyId, row) {
   document.querySelectorAll(`#${tbodyId} tr`).forEach(r => r.classList.remove('active-row'));
   if (row) row.classList.add('active-row');
-}
-
-function attachLogRowHandlers() {
-  document.querySelectorAll('#logBody tr').forEach(tr => {
-    tr.addEventListener('click', () => {
-      selectedPoint = {
-        pair: tr.dataset.pair || null,
-        series_index: normalizeIndex(tr.dataset.seriesIndex)
-      };
-      setActiveRow('logBody', tr);
-      if (stateCache) renderChart(stateCache);
-    });
-  });
-}
-
-function attachPaperRowHandlers() {
-  document.querySelectorAll('#paperBody tr').forEach(tr => {
-    tr.addEventListener('click', () => {
-      selectedPoint = {
-        pair: tr.dataset.pair || null,
-        series_index: normalizeIndex(tr.dataset.seriesIndex)
-      };
-      setActiveRow('paperBody', tr);
-      if (stateCache) renderChart(stateCache);
-    });
-  });
 }
 
 function renderRows(id, items, rowBuilder) {
@@ -337,6 +382,47 @@ function renderRows(id, items, rowBuilder) {
   });
 }
 
+function attachLogRowHandlers(s) {
+  const reversed = (s.opportunity_log || []).slice().reverse();
+  document.querySelectorAll('#logBody tr').forEach((tr, i) => {
+    const item = reversed[i] || {};
+    tr.dataset.pair = item.pair || '';
+    tr.dataset.seriesIndex = item.series_index ?? '';
+    tr.addEventListener('click', () => {
+      selectedPoint = {
+        pair: tr.dataset.pair || null,
+        series_index: normalizeIndex(tr.dataset.seriesIndex)
+      };
+      setActiveRow('logBody', tr);
+      if (stateCache) renderChart(stateCache);
+    });
+  });
+}
+
+function attachPaperRowHandlers(s) {
+  const reversed = (s.paper_events || []).slice().reverse();
+  const keys = getSeriesKeys(s);
+  const x = s.series_timestamps || [];
+
+  document.querySelectorAll('#paperBody tr').forEach((tr, i) => {
+    const item = reversed[i] || {};
+    const pair = getEventPair(item, keys);
+    const idx = resolveEventIndex(item, x);
+
+    tr.dataset.pair = pair || '';
+    tr.dataset.seriesIndex = idx ?? '';
+
+    tr.addEventListener('click', () => {
+      selectedPoint = {
+        pair: tr.dataset.pair || null,
+        series_index: normalizeIndex(tr.dataset.seriesIndex)
+      };
+      setActiveRow('paperBody', tr);
+      if (stateCache) renderChart(stateCache);
+    });
+  });
+}
+
 function renderAll(s) {
   stateCache = s;
 
@@ -346,53 +432,40 @@ function renderAll(s) {
   renderChart(s);
 
   renderRows('logBody', s.opportunity_log, item => `
-    <tr-data></tr-data>
     <td>${item.time || '-'}</td>
     <td>${item.pair || '-'}</td>
     <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
-    <td>${fmt(item.zscore, 4)}</td>
-    <td>${fmt(item.edge_bps, 2)}</td>
+    <td>${fmt(item.zscore,4)}</td>
+    <td>${fmt(item.edge_bps,2)}</td>
     <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
   `);
 
-  Array.from(document.querySelectorAll('#logBody tr')).forEach((tr, i) => {
-    const item = (s.opportunity_log || []).slice().reverse()[i];
-    tr.dataset.pair = item?.pair || '';
-    tr.dataset.seriesIndex = item?.series_index ?? '';
-  });
-
   renderRows('paperBody', s.paper_events, item => `
-    <td>${item.time || '-'}</td>
-    <td><span class="pill ${paperClass(item.event_type)}">${item.event_type || '-'}</span></td>
-    <td>${item.pair || '-'}</td>
+    <td>${item.time || item.timestamp || '-'}</td>
+    <td><span class="pill ${paperClass(item.event_type || item.event)}">${item.event_type || item.event || '-'}</span></td>
+    <td>${item.pair || item.symbol || item.instrument || '-'}</td>
     <td>${item.side || '-'}</td>
-    <td>${fmt(item.pnl_currency, 2)}</td>
+    <td>${fmt(item.pnl_currency,2)}</td>
   `);
-
-  Array.from(document.querySelectorAll('#paperBody tr')).forEach((tr, i) => {
-    const item = (s.paper_events || []).slice().reverse()[i];
-    tr.dataset.pair = item?.pair || '';
-    tr.dataset.seriesIndex = item?.series_index ?? '';
-  });
 
   renderRows('alertsBody', s.alerts_sent, item => `
     <td>${item.time || '-'}</td>
     <td>${item.pair || '-'}</td>
     <td>${item.signal || '-'}</td>
-    <td>${fmt(item.zscore, 4)}</td>
+    <td>${fmt(item.zscore,4)}</td>
     <td>${(item.channels || []).join(', ')}</td>
   `);
 
   renderRows('positionsBody', s.paper_positions, item => `
     <td>${item.pair || '-'}</td>
     <td>${item.side || '-'}</td>
-    <td>${fmt(item.entry_zscore, 4)}</td>
-    <td>${fmt(item.entry_ratio, 8)}</td>
-    <td>${fmt(item.size_notional, 2)}</td>
+    <td>${fmt(item.entry_zscore,4)}</td>
+    <td>${fmt(item.entry_ratio,8)}</td>
+    <td>${fmt(item.size_notional,2)}</td>
   `);
 
-  attachLogRowHandlers();
-  attachPaperRowHandlers();
+  attachLogRowHandlers(s);
+  attachPaperRowHandlers(s);
 }
 
 async function refresh() {
@@ -402,6 +475,7 @@ async function refresh() {
     renderAll(data);
   } catch (e) {
     console.error(e);
+    document.getElementById('debugBox').textContent = 'Error cargando /api/state';
   }
 }
 
