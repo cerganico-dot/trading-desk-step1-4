@@ -11,48 +11,402 @@
     .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
     .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
     .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; }
-    .muted { color:#94a3b8; font-size:12px; } table { width:100%; border-collapse: collapse; }
+    .muted { color:#94a3b8; font-size:12px; }
+    table { width:100%; border-collapse: collapse; }
     th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; }
     th { color:#93c5fd; position: sticky; top: 0; background:#111827; }
-    tr:hover { background:#172554; } .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
-    .pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; } .buy { background:#052e16; color:#86efac; } .sell { background:#450a0a; color:#fca5a5; } .none { background:#1f2937; color:#cbd5e1; }
-    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; } .kv div:nth-child(odd) { color:#93c5fd; }
+    tr:hover { background:#172554; cursor:pointer; }
+    tr.active-row { background:#1d4ed8 !important; }
+    .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
+    .pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; }
+    .buy { background:#052e16; color:#86efac; }
+    .sell { background:#450a0a; color:#fca5a5; }
+    .none { background:#1f2937; color:#cbd5e1; }
+    .open { background:#1e3a8a; color:#bfdbfe; }
+    .close { background:#3f6212; color:#d9f99d; }
+    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
+    .kv div:nth-child(odd) { color:#93c5fd; }
   </style>
 </head>
 <body>
 <div class="wrap">
   <div class="grid">
-    <div class="card span-12"><h1>ARG Trading Desk</h1><div class="muted" id="modeLabel">Cargando...</div></div>
-    <div class="card span-4"><h3>Riesgo</h3><div id="riskBox" class="kv"></div></div>
-    <div class="card span-8"><h3>Notas</h3><ul id="notes"></ul></div>
-    <div class="card span-12"><h3>Z-Score histórico</h3><div id="zscoreChart" style="height:420px;"></div></div>
-    <div class="card span-6"><h3>Oportunidades</h3><div class="log-wrap"><table><thead><tr><th>Hora</th><th>Par</th><th>Operación</th><th>Z</th><th>Edge</th><th>Filtro</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
-    <div class="card span-6"><h3>Paper trading</h3><div class="log-wrap"><table><thead><tr><th>Hora</th><th>Evento</th><th>Par</th><th>Side</th><th>PnL</th></tr></thead><tbody id="paperBody"></tbody></table></div></div>
-    <div class="card span-6"><h3>Alertas enviadas</h3><div class="log-wrap"><table><thead><tr><th>Hora</th><th>Par</th><th>Señal</th><th>Z</th><th>Canal</th></tr></thead><tbody id="alertsBody"></tbody></table></div></div>
-    <div class="card span-6"><h3>Posiciones abiertas</h3><div class="log-wrap"><table><thead><tr><th>Par</th><th>Side</th><th>Entry Z</th><th>Entry Ratio</th><th>Notional</th></tr></thead><tbody id="positionsBody"></tbody></table></div></div>
+    <div class="card span-12">
+      <h1>ARG Trading Desk</h1>
+      <div class="muted" id="modeLabel">Cargando...</div>
+    </div>
+
+    <div class="card span-4">
+      <h3>Riesgo</h3>
+      <div id="riskBox" class="kv"></div>
+    </div>
+
+    <div class="card span-8">
+      <h3>Notas</h3>
+      <ul id="notes"></ul>
+    </div>
+
+    <div class="card span-12">
+      <h3>Z-Score histórico</h3>
+      <div id="zscoreChart" style="height:420px;"></div>
+    </div>
+
+    <div class="card span-6">
+      <h3>Oportunidades</h3>
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Par</th>
+              <th>Operación</th>
+              <th>Z</th>
+              <th>Edge</th>
+              <th>Filtro</th>
+            </tr>
+          </thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card span-6">
+      <h3>Paper trading</h3>
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Evento</th>
+              <th>Par</th>
+              <th>Side</th>
+              <th>PnL</th>
+            </tr>
+          </thead>
+          <tbody id="paperBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card span-6">
+      <h3>Alertas enviadas</h3>
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Par</th>
+              <th>Señal</th>
+              <th>Z</th>
+              <th>Canal</th>
+            </tr>
+          </thead>
+          <tbody id="alertsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card span-6">
+      <h3>Posiciones abiertas</h3>
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Par</th>
+              <th>Side</th>
+              <th>Entry Z</th>
+              <th>Entry Ratio</th>
+              <th>Notional</th>
+            </tr>
+          </thead>
+          <tbody id="positionsBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
+
 <script>
 let stateCache = null;
-function fmt(n, digits=4){ if(n===null || n===undefined || Number.isNaN(Number(n))) return '-'; return Number(n).toLocaleString('es-AR',{maximumFractionDigits:digits}); }
-function renderRisk(r){ document.getElementById('riskBox').innerHTML = `
-  <div>Capital</div><div>${fmt(r.capital,2)}</div>
-  <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
-  <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
-  <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
-  <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
-  <div>Utilización</div><div>${fmt((r.utilization_pct||0)*100,2)}%</div>
-  <div>Status</div><div>${r.status||'-'}</div>`; }
-function renderNotes(notes){ const el=document.getElementById('notes'); el.innerHTML=''; (notes||[]).forEach(n=>{const li=document.createElement('li'); li.textContent=n; el.appendChild(li);}); }
-function renderChart(s){ const x=s.series_timestamps||[]; const zh=s.zscore_history||{}; const keys=Object.keys(zh).filter(k=>Array.isArray(zh[k])&&zh[k].length); if(!x.length||!keys.length){ document.getElementById('zscoreChart').innerHTML='<div class="muted">Sin histórico suficiente.</div>'; return; } const traces=keys.map(k=>({x:x,y:zh[k],mode:'lines+markers',name:k})); Plotly.newPlot('zscoreChart', traces, {paper_bgcolor:'#111827',plot_bgcolor:'#111827',font:{color:'#e5e7eb'},margin:{t:20,r:20,b:50,l:50},xaxis:{title:'Hora'},yaxis:{title:'Z-Score'}},{responsive:true}); }
-function signalClass(sig){ return String(sig||'').startsWith('BUY')?'buy':String(sig||'').startsWith('SELL')?'sell':'none'; }
-function renderRows(id, items, rowBuilder){ const body=document.getElementById(id); body.innerHTML=''; (items||[]).slice().reverse().forEach(item=>{ const tr=document.createElement('tr'); tr.innerHTML=rowBuilder(item); body.appendChild(tr); }); }
-function renderAll(s){ stateCache=s; document.getElementById('modeLabel').textContent=`Modo: ${s.mode||'?'}`; renderRisk(s.risk_report||{}); renderNotes(s.notes||[]); renderChart(s);
-  renderRows('logBody', s.opportunity_log, item=>`<td>${item.time||'-'}</td><td>${item.pair||'-'}</td><td><span class="pill ${signalClass(item.signal)}">${item.signal||'NO TRADE'}</span></td><td>${fmt(item.zscore,4)}</td><td>${fmt(item.edge_bps,2)}</td><td>${item.eligible===false?(item.reject_reason||'Rechazada'):'OK'}</td>`);
-  renderRows('paperBody', s.paper_events, item=>`<td>${item.time||'-'}</td><td>${item.event_type||'-'}</td><td>${item.pair||'-'}</td><td>${item.side||'-'}</td><td>${fmt(item.pnl_currency,2)}</td>`);
-  renderRows('alertsBody', s.alerts_sent, item=>`<td>${item.time||'-'}</td><td>${item.pair||'-'}</td><td>${item.signal||'-'}</td><td>${fmt(item.zscore,4)}</td><td>${(item.channels||[]).join(', ')}</td>`);
-  renderRows('positionsBody', s.paper_positions, item=>`<td>${item.pair||'-'}</td><td>${item.side||'-'}</td><td>${fmt(item.entry_zscore,4)}</td><td>${fmt(item.entry_ratio,8)}</td><td>${fmt(item.size_notional,2)}</td>`); }
-async function refresh(){ const r=await fetch('/api/state'); const data=await r.json(); renderAll(data);} refresh(); setInterval(refresh, 2000);
+let selectedPoint = null;
+
+function fmt(n, digits = 4) {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return '-';
+  return Number(n).toLocaleString('es-AR', { maximumFractionDigits: digits });
+}
+
+function signalClass(sig) {
+  return String(sig || '').startsWith('BUY') ? 'buy'
+       : String(sig || '').startsWith('SELL') ? 'sell'
+       : 'none';
+}
+
+function paperClass(ev) {
+  const t = String(ev || '').toUpperCase();
+  if (t.includes('OPEN') || t.includes('ENTRY')) return 'open';
+  if (t.includes('CLOSE') || t.includes('EXIT')) return 'close';
+  return 'none';
+}
+
+function renderRisk(r) {
+  document.getElementById('riskBox').innerHTML = `
+    <div>Capital</div><div>${fmt(r.capital,2)}</div>
+    <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
+    <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
+    <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
+    <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
+    <div>Utilización</div><div>${fmt((r.utilization_pct || 0) * 100,2)}%</div>
+    <div>Status</div><div>${r.status || '-'}</div>
+  `;
+}
+
+function renderNotes(notes) {
+  const el = document.getElementById('notes');
+  el.innerHTML = '';
+  (notes || []).forEach(n => {
+    const li = document.createElement('li');
+    li.textContent = n;
+    el.appendChild(li);
+  });
+}
+
+function normalizeIndex(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function resolveEventIndex(item, x) {
+  const direct = normalizeIndex(item.series_index);
+  if (direct !== null && direct >= 0 && direct < x.length) return direct;
+
+  const ts = item.timestamp || item.time || item.event_time;
+  if (!ts) return null;
+
+  const idx = x.findIndex(v => String(v) === String(ts));
+  if (idx >= 0) return idx;
+
+  return null;
+}
+
+function buildPaperEventTraces(s, x) {
+  const events = Array.isArray(s.paper_events) ? s.paper_events : [];
+  const traces = [];
+
+  const grouped = {};
+
+  events.forEach(item => {
+    const pair = item.pair || 'N/A';
+    const idx = resolveEventIndex(item, x);
+    if (idx === null) return;
+
+    if (!grouped[pair]) {
+      grouped[pair] = { x: [], y: [], text: [] };
+    }
+
+    const zHistory = s.zscore_history && s.zscore_history[pair];
+    const yVal = Array.isArray(zHistory) ? zHistory[idx] : null;
+    if (yVal === null || yVal === undefined) return;
+
+    grouped[pair].x.push(x[idx]);
+    grouped[pair].y.push(yVal);
+    grouped[pair].text.push(
+      `${item.event_type || 'EVENT'} | ${pair} | ${item.side || '-'} | PnL: ${fmt(item.pnl_currency, 2)}`
+    );
+  });
+
+  Object.keys(grouped).forEach(pair => {
+    traces.push({
+      x: grouped[pair].x,
+      y: grouped[pair].y,
+      text: grouped[pair].text,
+      mode: 'markers',
+      type: 'scatter',
+      name: `Paper ${pair}`,
+      marker: { size: 11, symbol: 'diamond' },
+      hovertemplate: '%{text}<extra></extra>'
+    });
+  });
+
+  return traces;
+}
+
+function buildSelectedPointTrace(s, x) {
+  if (!selectedPoint || !selectedPoint.pair) return null;
+
+  const pair = selectedPoint.pair;
+  const idx = normalizeIndex(selectedPoint.series_index);
+
+  if (idx === null) return null;
+  if (!s.zscore_history || !Array.isArray(s.zscore_history[pair])) return null;
+  if (idx < 0 || idx >= x.length) return null;
+
+  const yVal = s.zscore_history[pair][idx];
+  if (yVal === null || yVal === undefined) return null;
+
+  return {
+    x: [x[idx]],
+    y: [yVal],
+    mode: 'markers',
+    type: 'scatter',
+    name: 'Selección',
+    marker: { size: 16, symbol: 'circle-open-dot', line: { width: 3 } },
+    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+  };
+}
+
+function renderChart(s) {
+  const x = s.series_timestamps || [];
+  const zh = s.zscore_history || {};
+  const keys = Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
+
+  if (!x.length || !keys.length) {
+    document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente.</div>';
+    return;
+  }
+
+  const traces = keys.map(k => ({
+    x: x,
+    y: zh[k],
+    mode: 'lines+markers',
+    type: 'scatter',
+    name: k,
+    hovertemplate: `${k}<br>%{x}<br>Z: %{y}<extra></extra>`
+  }));
+
+  const paperEventTraces = buildPaperEventTraces(s, x);
+  const selectedTrace = buildSelectedPointTrace(s, x);
+
+  if (selectedTrace) traces.push(selectedTrace);
+  traces.push(...paperEventTraces);
+
+  Plotly.newPlot(
+    'zscoreChart',
+    traces,
+    {
+      paper_bgcolor: '#111827',
+      plot_bgcolor: '#111827',
+      font: { color: '#e5e7eb' },
+      margin: { t: 20, r: 20, b: 50, l: 50 },
+      xaxis: { title: 'Hora' },
+      yaxis: { title: 'Z-Score' },
+      legend: { orientation: 'h' }
+    },
+    { responsive: true, displayModeBar: false }
+  );
+}
+
+function setActiveRow(tbodyId, row) {
+  document.querySelectorAll(`#${tbodyId} tr`).forEach(r => r.classList.remove('active-row'));
+  if (row) row.classList.add('active-row');
+}
+
+function attachLogRowHandlers() {
+  document.querySelectorAll('#logBody tr').forEach(tr => {
+    tr.addEventListener('click', () => {
+      selectedPoint = {
+        pair: tr.dataset.pair || null,
+        series_index: normalizeIndex(tr.dataset.seriesIndex)
+      };
+      setActiveRow('logBody', tr);
+      if (stateCache) renderChart(stateCache);
+    });
+  });
+}
+
+function attachPaperRowHandlers() {
+  document.querySelectorAll('#paperBody tr').forEach(tr => {
+    tr.addEventListener('click', () => {
+      selectedPoint = {
+        pair: tr.dataset.pair || null,
+        series_index: normalizeIndex(tr.dataset.seriesIndex)
+      };
+      setActiveRow('paperBody', tr);
+      if (stateCache) renderChart(stateCache);
+    });
+  });
+}
+
+function renderRows(id, items, rowBuilder) {
+  const body = document.getElementById(id);
+  body.innerHTML = '';
+  (items || []).slice().reverse().forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = rowBuilder(item);
+    body.appendChild(tr);
+  });
+}
+
+function renderAll(s) {
+  stateCache = s;
+
+  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'}`;
+  renderRisk(s.risk_report || {});
+  renderNotes(s.notes || []);
+  renderChart(s);
+
+  renderRows('logBody', s.opportunity_log, item => `
+    <tr-data></tr-data>
+    <td>${item.time || '-'}</td>
+    <td>${item.pair || '-'}</td>
+    <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
+    <td>${fmt(item.zscore, 4)}</td>
+    <td>${fmt(item.edge_bps, 2)}</td>
+    <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
+  `);
+
+  Array.from(document.querySelectorAll('#logBody tr')).forEach((tr, i) => {
+    const item = (s.opportunity_log || []).slice().reverse()[i];
+    tr.dataset.pair = item?.pair || '';
+    tr.dataset.seriesIndex = item?.series_index ?? '';
+  });
+
+  renderRows('paperBody', s.paper_events, item => `
+    <td>${item.time || '-'}</td>
+    <td><span class="pill ${paperClass(item.event_type)}">${item.event_type || '-'}</span></td>
+    <td>${item.pair || '-'}</td>
+    <td>${item.side || '-'}</td>
+    <td>${fmt(item.pnl_currency, 2)}</td>
+  `);
+
+  Array.from(document.querySelectorAll('#paperBody tr')).forEach((tr, i) => {
+    const item = (s.paper_events || []).slice().reverse()[i];
+    tr.dataset.pair = item?.pair || '';
+    tr.dataset.seriesIndex = item?.series_index ?? '';
+  });
+
+  renderRows('alertsBody', s.alerts_sent, item => `
+    <td>${item.time || '-'}</td>
+    <td>${item.pair || '-'}</td>
+    <td>${item.signal || '-'}</td>
+    <td>${fmt(item.zscore, 4)}</td>
+    <td>${(item.channels || []).join(', ')}</td>
+  `);
+
+  renderRows('positionsBody', s.paper_positions, item => `
+    <td>${item.pair || '-'}</td>
+    <td>${item.side || '-'}</td>
+    <td>${fmt(item.entry_zscore, 4)}</td>
+    <td>${fmt(item.entry_ratio, 8)}</td>
+    <td>${fmt(item.size_notional, 2)}</td>
+  `);
+
+  attachLogRowHandlers();
+  attachPaperRowHandlers();
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/state');
+    const data = await r.json();
+    renderAll(data);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+refresh();
+setInterval(refresh, 2000);
 </script>
 </body>
 </html>
