@@ -30,6 +30,8 @@
     .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
     .kv div:nth-child(odd) { color:#93c5fd; }
     .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
+    .ok { color:#86efac; font-size:12px; margin-top:8px; }
+    .empty-row td { color:#94a3b8; text-align:center; padding:18px 10px; }
   </style>
 </head>
 <body>
@@ -39,6 +41,7 @@
       <h1>ARG Trading Desk</h1>
       <div class="muted" id="modeLabel">Cargando...</div>
       <div class="warn" id="debugBox"></div>
+      <div class="ok" id="paperSourceBox"></div>
     </div>
 
     <div class="card span-4">
@@ -186,13 +189,42 @@ function getSeriesKeys(s) {
   return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
 }
 
+function getPaperEventsSource(s) {
+  const candidates = [
+    ['paper_events', s.paper_events],
+    ['paper_trades', s.paper_trades],
+    ['paper_trade_log', s.paper_trade_log],
+    ['paper_log', s.paper_log],
+    ['paper_history', s.paper_history],
+    ['paperTrading', s.paperTrading],
+    ['trades', s.trades],
+    ['events', s.events]
+  ];
+
+  for (const [name, value] of candidates) {
+    if (Array.isArray(value) && value.length) {
+      return { name, items: value };
+    }
+  }
+
+  for (const [name, value] of candidates) {
+    if (Array.isArray(value)) {
+      return { name, items: value };
+    }
+  }
+
+  return { name: 'none', items: [] };
+}
+
 function getEventIndexFromTime(item, x) {
   const possibleTimes = [
     item.timestamp,
     item.time,
     item.event_time,
     item.entry_time,
-    item.exit_time
+    item.exit_time,
+    item.ts,
+    item.datetime
   ].filter(Boolean).map(v => String(v));
 
   if (!possibleTimes.length) return null;
@@ -223,7 +255,9 @@ function getEventPair(item, keys) {
     item.pair,
     item.symbol,
     item.instrument,
-    item.ticker
+    item.ticker,
+    item.asset,
+    item.series
   ].filter(Boolean).map(v => String(v));
 
   for (const c of candidates) {
@@ -235,18 +269,37 @@ function getEventPair(item, keys) {
     if (found) return found;
   }
 
+  return item.pair || item.symbol || item.instrument || item.ticker || '-';
+}
+
+function getEventType(item) {
+  return item.event_type || item.event || item.type || item.action || '-';
+}
+
+function getEventTime(item) {
+  return item.time || item.timestamp || item.event_time || item.entry_time || item.exit_time || item.ts || item.datetime || '-';
+}
+
+function getEventSide(item) {
+  return item.side || item.direction || item.trade_side || '-';
+}
+
+function getEventPnl(item) {
+  if (item.pnl_currency !== undefined) return item.pnl_currency;
+  if (item.pnl !== undefined) return item.pnl;
+  if (item.realized_pnl !== undefined) return item.realized_pnl;
+  if (item.unrealized_pnl !== undefined) return item.unrealized_pnl;
   return null;
 }
 
-function buildPaperEventTraces(s, x) {
-  const events = Array.isArray(s.paper_events) ? s.paper_events : [];
+function buildPaperEventTraces(s, x, paperItems) {
   const keys = getSeriesKeys(s);
   const grouped = {};
   let plottedCount = 0;
 
-  events.forEach(item => {
+  paperItems.forEach(item => {
     const pair = getEventPair(item, keys);
-    if (!pair) return;
+    if (!pair || !keys.includes(pair)) return;
 
     const idx = resolveEventIndex(item, x);
     if (idx === null || idx < 0 || idx >= x.length) return;
@@ -258,7 +311,7 @@ function buildPaperEventTraces(s, x) {
       grouped[pair] = { x: [], y: [], text: [], symbols: [], sizes: [] };
     }
 
-    const eventType = String(item.event_type || item.event || '').toUpperCase();
+    const eventType = String(getEventType(item)).toUpperCase();
     const isClose = eventType.includes('CLOSE') || eventType.includes('EXIT');
     const symbol = isClose ? 'diamond-open' : 'diamond';
     const size = isClose ? 12 : 11;
@@ -267,11 +320,11 @@ function buildPaperEventTraces(s, x) {
     grouped[pair].y.push(zHistory[idx]);
     grouped[pair].text.push(
       [
-        item.time || item.timestamp || '-',
-        item.event_type || item.event || 'EVENT',
+        getEventTime(item),
+        getEventType(item),
         pair,
-        item.side || '-',
-        `PnL: ${fmt(item.pnl_currency, 2)}`
+        getEventSide(item),
+        `PnL: ${fmt(getEventPnl(item), 2)}`
       ].join(' | ')
     );
     grouped[pair].symbols.push(symbol);
@@ -320,7 +373,7 @@ function buildSelectedPointTrace(s, x) {
   };
 }
 
-function renderChart(s) {
+function renderChart(s, paperItems) {
   const x = s.series_timestamps || [];
   const zh = s.zscore_history || {};
   const keys = getSeriesKeys(s);
@@ -339,7 +392,7 @@ function renderChart(s) {
     hovertemplate: `${k}<br>%{x}<br>Z: %{y}<extra></extra>`
   }));
 
-  const paper = buildPaperEventTraces(s, x);
+  const paper = buildPaperEventTraces(s, x, paperItems);
   const selectedTrace = buildSelectedPointTrace(s, x);
 
   if (selectedTrace) traces.push(selectedTrace);
@@ -360,10 +413,10 @@ function renderChart(s) {
     { responsive:true, displayModeBar:false }
   );
 
-  const totalEvents = Array.isArray(s.paper_events) ? s.paper_events.length : 0;
+  const totalEvents = Array.isArray(paperItems) ? paperItems.length : 0;
   document.getElementById('debugBox').textContent =
     totalEvents > 0 && paper.plottedCount === 0
-      ? `Paper events detectados: ${totalEvents}, pero no se pudieron mapear al gráfico.`
+      ? `Paper detectado: ${totalEvents} eventos, pero no se pudieron mapear al gráfico.`
       : '';
 }
 
@@ -372,10 +425,16 @@ function setActiveRow(tbodyId, row) {
   if (row) row.classList.add('active-row');
 }
 
-function renderRows(id, items, rowBuilder) {
+function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
   const body = document.getElementById(id);
   body.innerHTML = '';
-  (items || []).slice().reverse().forEach(item => {
+
+  if (!Array.isArray(items) || !items.length) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="5">${emptyMessage}</td></tr>`;
+    return;
+  }
+
+  items.slice().reverse().forEach(item => {
     const tr = document.createElement('tr');
     tr.innerHTML = rowBuilder(item);
     body.appendChild(tr);
@@ -394,13 +453,16 @@ function attachLogRowHandlers(s) {
         series_index: normalizeIndex(tr.dataset.seriesIndex)
       };
       setActiveRow('logBody', tr);
-      if (stateCache) renderChart(stateCache);
+      if (stateCache) {
+        const source = getPaperEventsSource(stateCache);
+        renderChart(stateCache, source.items);
+      }
     });
   });
 }
 
-function attachPaperRowHandlers(s) {
-  const reversed = (s.paper_events || []).slice().reverse();
+function attachPaperRowHandlers(s, paperItems) {
+  const reversed = (paperItems || []).slice().reverse();
   const keys = getSeriesKeys(s);
   const x = s.series_timestamps || [];
 
@@ -409,7 +471,7 @@ function attachPaperRowHandlers(s) {
     const pair = getEventPair(item, keys);
     const idx = resolveEventIndex(item, x);
 
-    tr.dataset.pair = pair || '';
+    tr.dataset.pair = keys.includes(pair) ? pair : '';
     tr.dataset.seriesIndex = idx ?? '';
 
     tr.addEventListener('click', () => {
@@ -418,7 +480,10 @@ function attachPaperRowHandlers(s) {
         series_index: normalizeIndex(tr.dataset.seriesIndex)
       };
       setActiveRow('paperBody', tr);
-      if (stateCache) renderChart(stateCache);
+      if (stateCache) {
+        const source = getPaperEventsSource(stateCache);
+        renderChart(stateCache, source.items);
+      }
     });
   });
 }
@@ -426,10 +491,15 @@ function attachPaperRowHandlers(s) {
 function renderAll(s) {
   stateCache = s;
 
+  const paperSource = getPaperEventsSource(s);
+  const paperItems = paperSource.items || [];
+
   document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'}`;
+  document.getElementById('paperSourceBox').textContent =
+    `Paper source: ${paperSource.name} | rows: ${paperItems.length}`;
   renderRisk(s.risk_report || {});
   renderNotes(s.notes || []);
-  renderChart(s);
+  renderChart(s, paperItems);
 
   renderRows('logBody', s.opportunity_log, item => `
     <td>${item.time || '-'}</td>
@@ -438,15 +508,15 @@ function renderAll(s) {
     <td>${fmt(item.zscore,4)}</td>
     <td>${fmt(item.edge_bps,2)}</td>
     <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
-  `);
+  `, 'Sin oportunidades');
 
-  renderRows('paperBody', s.paper_events, item => `
-    <td>${item.time || item.timestamp || '-'}</td>
-    <td><span class="pill ${paperClass(item.event_type || item.event)}">${item.event_type || item.event || '-'}</span></td>
-    <td>${item.pair || item.symbol || item.instrument || '-'}</td>
-    <td>${item.side || '-'}</td>
-    <td>${fmt(item.pnl_currency,2)}</td>
-  `);
+  renderRows('paperBody', paperItems, item => `
+    <td>${getEventTime(item)}</td>
+    <td><span class="pill ${paperClass(getEventType(item))}">${getEventType(item)}</span></td>
+    <td>${getEventPair(item, getSeriesKeys(s))}</td>
+    <td>${getEventSide(item)}</td>
+    <td>${fmt(getEventPnl(item),2)}</td>
+  `, 'Sin eventos de paper trading');
 
   renderRows('alertsBody', s.alerts_sent, item => `
     <td>${item.time || '-'}</td>
@@ -454,7 +524,7 @@ function renderAll(s) {
     <td>${item.signal || '-'}</td>
     <td>${fmt(item.zscore,4)}</td>
     <td>${(item.channels || []).join(', ')}</td>
-  `);
+  `, 'Sin alertas');
 
   renderRows('positionsBody', s.paper_positions, item => `
     <td>${item.pair || '-'}</td>
@@ -462,10 +532,10 @@ function renderAll(s) {
     <td>${fmt(item.entry_zscore,4)}</td>
     <td>${fmt(item.entry_ratio,8)}</td>
     <td>${fmt(item.size_notional,2)}</td>
-  `);
+  `, 'Sin posiciones abiertas');
 
   attachLogRowHandlers(s);
-  attachPaperRowHandlers(s);
+  attachPaperRowHandlers(s, paperItems);
 }
 
 async function refresh() {
