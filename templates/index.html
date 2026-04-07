@@ -7,7 +7,7 @@
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
-    .wrap { max-width: 1480px; margin: 0 auto; padding: 20px; }
+    .wrap { max-width: 1520px; margin: 0 auto; padding: 20px; }
     .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
     .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
     .span-12 { grid-column: span 12; }
@@ -15,23 +15,40 @@
     .span-6 { grid-column: span 6; }
     .span-4 { grid-column: span 4; }
     .muted { color:#94a3b8; font-size:12px; }
+    .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
+    .ok { color:#86efac; font-size:12px; margin-top:8px; }
+    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
+    .kv div:nth-child(odd) { color:#93c5fd; }
+    .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
     table { width:100%; border-collapse: collapse; }
-    th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; }
-    th { color:#93c5fd; position: sticky; top: 0; background:#111827; }
+    th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; white-space: nowrap; }
+    th { color:#93c5fd; position: sticky; top: 0; background:#111827; z-index: 1; }
     tr:hover { background:#172554; cursor:pointer; }
     tr.active-row { background:#1d4ed8 !important; }
-    .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
     .pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; }
     .buy { background:#052e16; color:#86efac; }
     .sell { background:#450a0a; color:#fca5a5; }
     .none { background:#1f2937; color:#cbd5e1; }
     .open { background:#1e3a8a; color:#bfdbfe; }
     .close { background:#3f6212; color:#d9f99d; }
-    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
-    .kv div:nth-child(odd) { color:#93c5fd; }
-    .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
-    .ok { color:#86efac; font-size:12px; margin-top:8px; }
     .empty-row td { color:#94a3b8; text-align:center; padding:18px 10px; }
+    .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .tab-btn {
+      border:1px solid #334155; background:#0f172a; color:#cbd5e1;
+      padding:8px 12px; border-radius:10px; cursor:pointer; font-size:13px;
+    }
+    .tab-btn.active { background:#1d4ed8; color:#ffffff; border-color:#2563eb; }
+    .pair-head {
+      display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;
+    }
+    .pair-title { font-size:20px; font-weight:700; }
+    .pair-sub { color:#94a3b8; font-size:12px; }
+    .mini-kpis { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+    .mini-kpi {
+      background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:10px 12px; min-width:140px;
+    }
+    .mini-kpi .label { color:#93c5fd; font-size:12px; }
+    .mini-kpi .value { font-size:16px; margin-top:4px; }
   </style>
 </head>
 <body>
@@ -42,6 +59,17 @@
       <div class="muted" id="modeLabel">Cargando...</div>
       <div class="warn" id="debugBox"></div>
       <div class="ok" id="paperSourceBox"></div>
+      <div class="tabs" id="pairTabs"></div>
+    </div>
+
+    <div class="card span-12">
+      <div class="pair-head">
+        <div>
+          <div class="pair-title" id="pairTitle">Par</div>
+          <div class="pair-sub" id="pairSubtitle">Detalle del arbitraje</div>
+        </div>
+        <div class="mini-kpis" id="pairKpis"></div>
+      </div>
     </div>
 
     <div class="card span-4">
@@ -60,7 +88,7 @@
     </div>
 
     <div class="card span-6">
-      <h3>Oportunidades</h3>
+      <h3>Oportunidades del par</h3>
       <div class="log-wrap">
         <table>
           <thead>
@@ -79,7 +107,7 @@
     </div>
 
     <div class="card span-6">
-      <h3>Paper trading</h3>
+      <h3>Paper trading del par</h3>
       <div class="log-wrap">
         <table>
           <thead>
@@ -97,7 +125,7 @@
     </div>
 
     <div class="card span-6">
-      <h3>Alertas enviadas</h3>
+      <h3>Alertas del par</h3>
       <div class="log-wrap">
         <table>
           <thead>
@@ -115,7 +143,7 @@
     </div>
 
     <div class="card span-6">
-      <h3>Posiciones abiertas</h3>
+      <h3>Posiciones abiertas del par</h3>
       <div class="log-wrap">
         <table>
           <thead>
@@ -137,6 +165,7 @@
 <script>
 let stateCache = null;
 let selectedPoint = null;
+let activePair = null;
 
 function fmt(n, digits = 4) {
   if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
@@ -162,6 +191,56 @@ function normalizeIndex(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function getSeriesKeys(s) {
+  const zh = s.zscore_history || {};
+  return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
+}
+
+function getAvailablePairs(s) {
+  const set = new Set();
+
+  (s.pairs || []).forEach(p => set.add(String(p)));
+  Object.keys(s.zscore_history || {}).forEach(p => set.add(String(p)));
+  (s.opportunity_log || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
+  (s.alerts_sent || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
+  (s.paper_positions || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
+
+  const paperSource = getPaperEventsSource(s);
+  (paperSource.items || []).forEach(x => {
+    const p = x.pair || x.symbol || x.instrument || x.series;
+    if (p) set.add(String(p));
+  });
+
+  return Array.from(set).filter(Boolean);
+}
+
+function getDefaultPair(s) {
+  const pairs = getAvailablePairs(s);
+  if (!pairs.length) return null;
+  if (activePair && pairs.includes(activePair)) return activePair;
+  return pairs[0];
+}
+
+function renderTabs(s) {
+  const tabsEl = document.getElementById('pairTabs');
+  const pairs = getAvailablePairs(s);
+  const resolvedPair = getDefaultPair(s);
+  activePair = resolvedPair;
+
+  tabsEl.innerHTML = '';
+  pairs.forEach(pair => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${pair === activePair ? 'active' : ''}`;
+    btn.textContent = pair;
+    btn.addEventListener('click', () => {
+      activePair = pair;
+      selectedPoint = null;
+      renderAll(stateCache);
+    });
+    tabsEl.appendChild(btn);
+  });
+}
+
 function renderRisk(r) {
   document.getElementById('riskBox').innerHTML = `
     <div>Capital</div><div>${fmt(r.capital,2)}</div>
@@ -184,11 +263,6 @@ function renderNotes(notes) {
   });
 }
 
-function getSeriesKeys(s) {
-  const zh = s.zscore_history || {};
-  return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
-}
-
 function getPaperEventsSource(s) {
   const candidates = [
     ['paper_events', s.paper_events],
@@ -202,29 +276,18 @@ function getPaperEventsSource(s) {
   ];
 
   for (const [name, value] of candidates) {
-    if (Array.isArray(value) && value.length) {
-      return { name, items: value };
-    }
+    if (Array.isArray(value) && value.length) return { name, items: value };
   }
-
   for (const [name, value] of candidates) {
-    if (Array.isArray(value)) {
-      return { name, items: value };
-    }
+    if (Array.isArray(value)) return { name, items: value };
   }
-
   return { name: 'none', items: [] };
 }
 
 function getEventIndexFromTime(item, x) {
   const possibleTimes = [
-    item.timestamp,
-    item.time,
-    item.event_time,
-    item.entry_time,
-    item.exit_time,
-    item.ts,
-    item.datetime
+    item.timestamp, item.time, item.event_time, item.entry_time,
+    item.exit_time, item.ts, item.datetime
   ].filter(Boolean).map(v => String(v));
 
   if (!possibleTimes.length) return null;
@@ -233,12 +296,10 @@ function getEventIndexFromTime(item, x) {
     const exactIdx = x.findIndex(v => String(v) === t);
     if (exactIdx >= 0) return exactIdx;
   }
-
   for (const t of possibleTimes) {
     const partialIdx = x.findIndex(v => String(v).includes(t) || t.includes(String(v)));
     if (partialIdx >= 0) return partialIdx;
   }
-
   return null;
 }
 
@@ -252,18 +313,12 @@ function getEventPair(item, keys) {
   if (item.pair && keys.includes(item.pair)) return item.pair;
 
   const candidates = [
-    item.pair,
-    item.symbol,
-    item.instrument,
-    item.ticker,
-    item.asset,
-    item.series
+    item.pair, item.symbol, item.instrument, item.ticker, item.asset, item.series
   ].filter(Boolean).map(v => String(v));
 
   for (const c of candidates) {
     if (keys.includes(c)) return c;
   }
-
   for (const c of candidates) {
     const found = keys.find(k => c.includes(k) || k.includes(c));
     if (found) return found;
@@ -292,6 +347,13 @@ function getEventPnl(item) {
   return null;
 }
 
+function pairFilter(items, pair) {
+  return (items || []).filter(x => {
+    const p = x.pair || x.symbol || x.instrument || x.series;
+    return String(p || '') === String(pair || '');
+  });
+}
+
 function buildPaperEventTraces(s, x, paperItems) {
   const keys = getSeriesKeys(s);
   const grouped = {};
@@ -300,6 +362,7 @@ function buildPaperEventTraces(s, x, paperItems) {
   paperItems.forEach(item => {
     const pair = getEventPair(item, keys);
     if (!pair || !keys.includes(pair)) return;
+    if (activePair && pair !== activePair) return;
 
     const idx = resolveEventIndex(item, x);
     if (idx === null || idx < 0 || idx >= x.length) return;
@@ -307,9 +370,7 @@ function buildPaperEventTraces(s, x, paperItems) {
     const zHistory = s.zscore_history[pair];
     if (!Array.isArray(zHistory) || zHistory[idx] === null || zHistory[idx] === undefined) return;
 
-    if (!grouped[pair]) {
-      grouped[pair] = { x: [], y: [], text: [], symbols: [], sizes: [] };
-    }
+    if (!grouped[pair]) grouped[pair] = { x: [], y: [], text: [], symbols: [], sizes: [] };
 
     const eventType = String(getEventType(item)).toUpperCase();
     const isClose = eventType.includes('CLOSE') || eventType.includes('EXIT');
@@ -355,6 +416,7 @@ function buildSelectedPointTrace(s, x) {
   const pair = selectedPoint.pair;
   const idx = normalizeIndex(selectedPoint.series_index);
 
+  if (pair !== activePair) return null;
   if (idx === null) return null;
   if (!s.zscore_history || !Array.isArray(s.zscore_history[pair])) return null;
   if (idx < 0 || idx >= x.length) return null;
@@ -376,21 +438,21 @@ function buildSelectedPointTrace(s, x) {
 function renderChart(s, paperItems) {
   const x = s.series_timestamps || [];
   const zh = s.zscore_history || {};
-  const keys = getSeriesKeys(s);
+  const pair = activePair;
 
-  if (!x.length || !keys.length) {
-    document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente.</div>';
+  if (!pair || !x.length || !Array.isArray(zh[pair]) || !zh[pair].length) {
+    document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente para este par.</div>';
     return;
   }
 
-  const traces = keys.map(k => ({
+  const traces = [{
     x: x,
-    y: zh[k],
+    y: zh[pair],
     mode: 'lines+markers',
     type: 'scatter',
-    name: k,
-    hovertemplate: `${k}<br>%{x}<br>Z: %{y}<extra></extra>`
-  }));
+    name: pair,
+    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+  }];
 
   const paper = buildPaperEventTraces(s, x, paperItems);
   const selectedTrace = buildSelectedPointTrace(s, x);
@@ -416,7 +478,7 @@ function renderChart(s, paperItems) {
   const totalEvents = Array.isArray(paperItems) ? paperItems.length : 0;
   document.getElementById('debugBox').textContent =
     totalEvents > 0 && paper.plottedCount === 0
-      ? `Paper detectado: ${totalEvents} eventos, pero no se pudieron mapear al gráfico.`
+      ? `Paper detectado para ${pair}: ${totalEvents} eventos, pero no se pudieron mapear al gráfico.`
       : '';
 }
 
@@ -430,12 +492,7 @@ function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
   body.innerHTML = '';
 
   if (!Array.isArray(items) || !items.length) {
-    const colspans = {
-      logBody: 6,
-      paperBody: 5,
-      alertsBody: 5,
-      positionsBody: 5
-    };
+    const colspans = { logBody: 6, paperBody: 5, alertsBody: 5, positionsBody: 5 };
     body.innerHTML = `<tr class="empty-row"><td colspan="${colspans[id] || 5}">${emptyMessage}</td></tr>`;
     return;
   }
@@ -448,9 +505,9 @@ function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
 }
 
 function attachLogRowHandlers(s) {
-  const reversed = (s.opportunity_log || []).slice().reverse();
+  const filtered = pairFilter(s.opportunity_log, activePair).slice().reverse();
   document.querySelectorAll('#logBody tr').forEach((tr, i) => {
-    const item = reversed[i] || {};
+    const item = filtered[i] || {};
     tr.dataset.pair = item.pair || '';
     tr.dataset.seriesIndex = item.series_index ?? '';
     tr.addEventListener('click', () => {
@@ -461,7 +518,7 @@ function attachLogRowHandlers(s) {
       setActiveRow('logBody', tr);
       if (stateCache) {
         const source = getPaperEventsSource(stateCache);
-        renderChart(stateCache, source.items);
+        renderChart(stateCache, pairFilter(source.items, activePair));
       }
     });
   });
@@ -488,60 +545,107 @@ function attachPaperRowHandlers(s, paperItems) {
       setActiveRow('paperBody', tr);
       if (stateCache) {
         const source = getPaperEventsSource(stateCache);
-        renderChart(stateCache, source.items);
+        renderChart(stateCache, pairFilter(source.items, activePair));
       }
     });
   });
+}
+
+function renderPairHeader(s, pair, paperItems) {
+  const zscores = s.zscores || {};
+  const ratios = s.ratios || {};
+  const logs = pairFilter(s.opportunity_log, pair);
+  const alerts = pairFilter(s.alerts_sent, pair);
+  const positions = pairFilter(s.paper_positions, pair);
+
+  document.getElementById('pairTitle').textContent = pair || '-';
+  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'}`;
+
+  document.getElementById('pairKpis').innerHTML = `
+    <div class="mini-kpi">
+      <div class="label">Ratio actual</div>
+      <div class="value">${fmt(ratios[pair], 8)}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Z-score actual</div>
+      <div class="value">${fmt(zscores[pair], 4)}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Logs</div>
+      <div class="value">${logs.length}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Paper events</div>
+      <div class="value">${paperItems.length}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Alertas</div>
+      <div class="value">${alerts.length}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Posiciones abiertas</div>
+      <div class="value">${positions.length}</div>
+    </div>
+  `;
 }
 
 function renderAll(s) {
   stateCache = s;
 
   const paperSource = getPaperEventsSource(s);
-  const paperItems = paperSource.items || [];
+  const resolvedPair = getDefaultPair(s);
+  activePair = resolvedPair;
 
-  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'}`;
+  const filteredLogs = pairFilter(s.opportunity_log, activePair);
+  const filteredPaper = pairFilter(paperSource.items, activePair);
+  const filteredAlerts = pairFilter(s.alerts_sent, activePair);
+  const filteredPositions = pairFilter(s.paper_positions, activePair);
+
+  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'} | TZ: ${s.timezone || '-'}`;
   document.getElementById('paperSourceBox').textContent =
-    `Paper source: ${paperSource.name} | rows: ${paperItems.length}`;
+    `Paper source: ${paperSource.name} | pair: ${activePair || '-'} | rows: ${filteredPaper.length}`;
+
+  renderTabs(s);
+  renderPairHeader(s, activePair, filteredPaper);
   renderRisk(s.risk_report || {});
   renderNotes(s.notes || []);
-  renderChart(s, paperItems);
+  renderChart(s, filteredPaper);
 
-  renderRows('logBody', s.opportunity_log, item => `
+  renderRows('logBody', filteredLogs, item => `
     <td>${item.time || '-'}</td>
     <td>${item.pair || '-'}</td>
     <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
     <td>${fmt(item.zscore,4)}</td>
     <td>${fmt(item.edge_bps,2)}</td>
     <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
-  `, 'Sin oportunidades');
+  `, 'Sin oportunidades para este par');
 
-  renderRows('paperBody', paperItems, item => `
+  renderRows('paperBody', filteredPaper, item => `
     <td>${getEventTime(item)}</td>
     <td><span class="pill ${paperClass(getEventType(item))}">${getEventType(item)}</span></td>
     <td>${getEventPair(item, getSeriesKeys(s))}</td>
     <td>${getEventSide(item)}</td>
     <td>${fmt(getEventPnl(item),2)}</td>
-  `, 'Sin eventos de paper trading');
+  `, 'Sin eventos de paper trading para este par');
 
-  renderRows('alertsBody', s.alerts_sent, item => `
+  renderRows('alertsBody', filteredAlerts, item => `
     <td>${item.time || '-'}</td>
     <td>${item.pair || '-'}</td>
     <td>${item.signal || '-'}</td>
     <td>${fmt(item.zscore,4)}</td>
     <td>${(item.channels || []).join(', ')}</td>
-  `, 'Sin alertas');
+  `, 'Sin alertas para este par');
 
-  renderRows('positionsBody', s.paper_positions, item => `
+  renderRows('positionsBody', filteredPositions, item => `
     <td>${item.pair || '-'}</td>
     <td>${item.side || '-'}</td>
     <td>${fmt(item.entry_zscore,4)}</td>
     <td>${fmt(item.entry_ratio,8)}</td>
     <td>${fmt(item.size_notional,2)}</td>
-  `, 'Sin posiciones abiertas');
+  `, 'Sin posiciones abiertas para este par');
 
   attachLogRowHandlers(s);
-  attachPaperRowHandlers(s, paperItems);
+  attachPaperRowHandlers(s, filteredPaper);
 }
 
 async function refresh() {
