@@ -14,7 +14,7 @@ from engine.iol_provider import IOLConfig, IOLMarketProvider
 from engine.live_desk import LiveDesk
 from engine.simulator import DeskSimulator
 
-app = FastAPI(title="ARG Trading Desk", version="3.0.0")
+app = FastAPI(title="ARG Trading Desk", version="3.1.0")
 HTML_PATH = Path(__file__).parent / "templates" / "index.html"
 
 USE_IOL = os.getenv("USE_IOL", "0") == "1"
@@ -176,13 +176,8 @@ def _pair_names(pairs: list[tuple[str, str]]) -> list[str]:
     return [f"{a}/{b}" for a, b in pairs]
 
 
-def _rebuild_live_engine() -> LiveDesk:
-    global _live_engine
-
-    pairs = _all_pairs()
-    symbols = _all_symbols()
-
-    provider = IOLMarketProvider(
+def _build_provider(symbols: list[str]) -> IOLMarketProvider:
+    return IOLMarketProvider(
         symbols=symbols,
         config=IOLConfig(
             username=IOL_USERNAME,
@@ -194,6 +189,66 @@ def _rebuild_live_engine() -> LiveDesk:
         ),
     )
 
+
+def _validate_symbols_live(left: str, right: str) -> dict[str, Any]:
+    if not (USE_IOL and IOL_USERNAME and IOL_PASSWORD):
+        return {
+            "validated": False,
+            "mode": "SKIPPED",
+            "reason": "LIVE desactivado o credenciales faltantes.",
+            "symbols_found": [],
+        }
+
+    provider = _build_provider([left, right])
+    try:
+        quotes = provider.snapshot()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"No se pudo validar en IOL: {exc}") from exc
+
+    found: list[str] = []
+    missing: list[str] = []
+
+    for sym in [left, right]:
+        q = quotes.get(sym)
+        if q is None:
+            missing.append(sym)
+            continue
+
+        has_price = any(
+            [
+                getattr(q, "bid", None) not in (None, 0),
+                getattr(q, "ask", None) not in (None, 0),
+                getattr(q, "last", None) not in (None, 0),
+                getattr(q, "mid", None) not in (None, 0),
+            ]
+        )
+
+        if has_price:
+            found.append(sym)
+        else:
+            missing.append(sym)
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ticker inválido o sin cotización válida en IOL: {', '.join(missing)}",
+        )
+
+    return {
+        "validated": True,
+        "mode": "LIVE",
+        "reason": "",
+        "symbols_found": found,
+    }
+
+
+def _rebuild_live_engine() -> LiveDesk:
+    global _live_engine
+
+    pairs = _all_pairs()
+    symbols = _all_symbols()
+
+    provider = _build_provider(symbols)
     _live_engine = LiveDesk(
         provider=provider,
         capital=CAPITAL,
@@ -324,15 +379,39 @@ def get_config() -> JSONResponse:
     )
 
 
+@app.post("/api/config/pairs/validate")
+def validate_pair(payload: dict = Body(...)) -> JSONResponse:
+    left = payload.get("left")
+    right = payload.get("right")
+
+    try:
+        pair = _normalize_pair(left, right)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    validation = _validate_symbols_live(pair[0], pair[1])
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "pair": f"{pair[0]}/{pair[1]}",
+            **validation,
+        }
+    )
+
+
 @app.post("/api/config/pairs")
 def add_pair(payload: dict = Body(...)) -> JSONResponse:
     left = payload.get("left")
     right = payload.get("right")
 
     try:
-        pair = _save_manual_pair(left, right)
+        pair = _normalize_pair(left, right)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    validation = _validate_symbols_live(pair[0], pair[1])
+    pair = _save_manual_pair(pair[0], pair[1])
 
     if USE_IOL and IOL_USERNAME and IOL_PASSWORD:
         _rebuild_live_engine()
@@ -341,6 +420,7 @@ def add_pair(payload: dict = Body(...)) -> JSONResponse:
         {
             "ok": True,
             "added": f"{pair[0]}/{pair[1]}",
+            "validation": validation,
             "manual_pairs": _pair_names(_load_manual_pairs()),
             "pairs": _pair_names(_all_pairs()),
             "symbols": _all_symbols(),
