@@ -49,6 +49,14 @@
     }
     .mini-kpi .label { color:#93c5fd; font-size:12px; }
     .mini-kpi .value { font-size:16px; margin-top:4px; }
+    .chart-toolbar {
+      display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:10px;
+      font-size:13px; color:#cbd5e1;
+    }
+    .chart-toolbar label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+    .chart-toolbar select {
+      background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:6px 8px;
+    }
   </style>
 </head>
 <body>
@@ -83,7 +91,18 @@
     </div>
 
     <div class="card span-12">
-      <h3>Z-Score histórico + Media Móvil + Bollinger</h3>
+      <h3>Z-Score histórico</h3>
+      <div class="chart-toolbar">
+        <label><input type="checkbox" id="toggleMA" checked> Media móvil</label>
+        <label><input type="checkbox" id="toggleBB" checked> Bollinger Bands</label>
+        <label>Ventana
+          <select id="indicatorWindow">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="30">30</option>
+          </select>
+        </label>
+      </div>
       <div id="zscoreChart" style="height:420px;"></div>
     </div>
 
@@ -168,21 +187,61 @@ let selectedPoint = null;
 let activePair = null;
 
 const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v1';
-const BB_WINDOW = 20;
+const INDICATOR_WINDOW_KEY = 'tradingdesk_indicator_window_v1';
+const TOGGLE_MA_KEY = 'tradingdesk_toggle_ma_v1';
+const TOGGLE_BB_KEY = 'tradingdesk_toggle_bb_v1';
 const BB_STD_MULT = 2;
 
-function saveActivePair(pair) {
+function saveLS(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) {}
+}
+function loadLS(key, fallback = null) {
   try {
-    if (pair) localStorage.setItem(ACTIVE_TAB_KEY, pair);
-  } catch (_) {}
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v;
+  } catch (_) {
+    return fallback;
+  }
 }
 
-function loadSavedActivePair() {
-  try {
-    return localStorage.getItem(ACTIVE_TAB_KEY);
-  } catch (_) {
-    return null;
-  }
+function currentIndicatorWindow() {
+  const el = document.getElementById('indicatorWindow');
+  return Number(el?.value || loadLS(INDICATOR_WINDOW_KEY, '20') || 20);
+}
+function isMAToggled() {
+  const el = document.getElementById('toggleMA');
+  return el ? el.checked : loadLS(TOGGLE_MA_KEY, '1') === '1';
+}
+function isBBToggled() {
+  const el = document.getElementById('toggleBB');
+  return el ? el.checked : loadLS(TOGGLE_BB_KEY, '1') === '1';
+}
+
+function initIndicatorControls() {
+  const windowEl = document.getElementById('indicatorWindow');
+  const maEl = document.getElementById('toggleMA');
+  const bbEl = document.getElementById('toggleBB');
+
+  if (windowEl.dataset.bound === '1') return;
+
+  windowEl.value = loadLS(INDICATOR_WINDOW_KEY, '20');
+  maEl.checked = loadLS(TOGGLE_MA_KEY, '1') === '1';
+  bbEl.checked = loadLS(TOGGLE_BB_KEY, '1') === '1';
+
+  windowEl.addEventListener('change', () => {
+    saveLS(INDICATOR_WINDOW_KEY, windowEl.value);
+    if (stateCache) renderAll(stateCache);
+  });
+  maEl.addEventListener('change', () => {
+    saveLS(TOGGLE_MA_KEY, maEl.checked ? '1' : '0');
+    if (stateCache) renderAll(stateCache);
+  });
+  bbEl.addEventListener('change', () => {
+    saveLS(TOGGLE_BB_KEY, bbEl.checked ? '1' : '0');
+    if (stateCache) renderAll(stateCache);
+  });
+
+  windowEl.dataset.bound = '1';
 }
 
 function fmt(n, digits = 4) {
@@ -237,7 +296,6 @@ function getPaperEventsSource(s) {
 
 function getAvailablePairs(s) {
   const set = new Set();
-
   (s.pairs || []).forEach(p => set.add(String(p)));
   Object.keys(s.zscore_history || {}).forEach(p => set.add(String(p)));
   (s.opportunity_log || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
@@ -257,7 +315,7 @@ function getDefaultPair(s) {
   const pairs = getAvailablePairs(s);
   if (!pairs.length) return null;
 
-  const saved = loadSavedActivePair();
+  const saved = loadLS(ACTIVE_TAB_KEY, null);
   if (saved && pairs.includes(saved)) return saved;
   if (activePair && pairs.includes(activePair)) return activePair;
 
@@ -267,9 +325,8 @@ function getDefaultPair(s) {
 function renderTabs(s) {
   const tabsEl = document.getElementById('pairTabs');
   const pairs = getAvailablePairs(s);
-  const resolvedPair = getDefaultPair(s);
-  activePair = resolvedPair;
-  saveActivePair(activePair);
+  activePair = getDefaultPair(s);
+  saveLS(ACTIVE_TAB_KEY, activePair);
 
   tabsEl.innerHTML = '';
   pairs.forEach(pair => {
@@ -278,7 +335,7 @@ function renderTabs(s) {
     btn.textContent = pair;
     btn.addEventListener('click', () => {
       activePair = pair;
-      saveActivePair(activePair);
+      saveLS(ACTIVE_TAB_KEY, activePair);
       selectedPoint = null;
       renderAll(stateCache);
     });
@@ -382,8 +439,8 @@ function rollingMean(values, window) {
   const out = new Array(values.length).fill(null);
   for (let i = 0; i < values.length; i++) {
     if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1).filter(v => Number.isFinite(v));
-    if (slice.length !== window) continue;
+    const slice = values.slice(i - window + 1, i + 1);
+    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
     const sum = slice.reduce((a, b) => a + b, 0);
     out[i] = sum / window;
   }
@@ -394,8 +451,8 @@ function rollingStd(values, window) {
   const out = new Array(values.length).fill(null);
   for (let i = 0; i < values.length; i++) {
     if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1).filter(v => Number.isFinite(v));
-    if (slice.length !== window) continue;
+    const slice = values.slice(i - window + 1, i + 1);
+    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
     const mean = slice.reduce((a, b) => a + b, 0) / window;
     const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
     out[i] = Math.sqrt(variance);
@@ -431,41 +488,34 @@ function buildPaperEventTraces(s, x, paperItems) {
 
     const eventType = String(getEventType(item)).toUpperCase();
     const isClose = eventType.includes('CLOSE') || eventType.includes('EXIT');
-    const symbol = isClose ? 'diamond-open' : 'diamond';
-    const size = isClose ? 12 : 11;
-
     grouped[pair].x.push(x[idx]);
     grouped[pair].y.push(zHistory[idx]);
     grouped[pair].text.push(
-      [
-        getEventTime(item),
-        getEventType(item),
-        pair,
-        getEventSide(item),
-        `PnL: ${fmt(getEventPnl(item), 2)}`
-      ].join(' | ')
+      [getEventTime(item), getEventType(item), pair, getEventSide(item), `PnL: ${fmt(getEventPnl(item), 2)}`].join(' | ')
     );
-    grouped[pair].symbols.push(symbol);
-    grouped[pair].sizes.push(size);
+    grouped[pair].symbols.push(isClose ? 'diamond-open' : 'diamond');
+    grouped[pair].sizes.push(isClose ? 12 : 11);
     plottedCount += 1;
   });
 
-  const traces = Object.keys(grouped).map(pair => ({
-    x: grouped[pair].x,
-    y: grouped[pair].y,
-    text: grouped[pair].text,
-    mode: 'markers',
-    type: 'scatter',
-    name: `Paper ${pair}`,
-    marker: {
-      size: grouped[pair].sizes,
-      symbol: grouped[pair].symbols,
-      line: { width: 2 }
-    },
-    hovertemplate: '%{text}<extra></extra>'
-  }));
-
-  return { traces, plottedCount };
+  return {
+    traces: Object.keys(grouped).map(pair => ({
+      x: grouped[pair].x,
+      y: grouped[pair].y,
+      text: grouped[pair].text,
+      mode: 'markers',
+      type: 'scatter',
+      name: `Paper ${pair}`,
+      marker: {
+        size: grouped[pair].sizes,
+        symbol: grouped[pair].symbols,
+        color: '#f59e0b',
+        line: { width: 2, color: '#ffffff' }
+      },
+      hovertemplate: '%{text}<extra></extra>'
+    })),
+    plottedCount
+  };
 }
 
 function buildSelectedPointTrace(s, x) {
@@ -487,7 +537,7 @@ function buildSelectedPointTrace(s, x) {
     mode: 'markers',
     type: 'scatter',
     name: 'Selección',
-    marker: { size: 16, symbol: 'circle-open-dot', line: { width: 3 } },
+    marker: { size: 16, symbol: 'circle-open-dot', color: '#ffffff', line: { width: 3, color: '#ef4444' } },
     hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
   };
 }
@@ -496,14 +546,21 @@ function renderChart(s, paperItems) {
   const x = s.series_timestamps || [];
   const zh = s.zscore_history || {};
   const pair = activePair;
+  const window = currentIndicatorWindow();
+  const showMA = isMAToggled();
+  const showBB = isBBToggled();
 
   if (!pair || !x.length || !Array.isArray(zh[pair]) || !zh[pair].length) {
     document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente para este par.</div>';
     return;
   }
 
-  const zValues = zh[pair].map(v => Number.isFinite(Number(v)) ? Number(v) : null);
-  const bb = buildBollinger(zValues, BB_WINDOW, BB_STD_MULT);
+  const zValues = zh[pair].map(v => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  });
+
+  const bb = buildBollinger(zValues, window, BB_STD_MULT);
 
   const traces = [
     {
@@ -512,39 +569,48 @@ function renderChart(s, paperItems) {
       mode: 'lines+markers',
       type: 'scatter',
       name: pair,
-      line: { width: 2 },
+      line: { width: 3, color: '#60a5fa' },
+      marker: { size: 5, color: '#93c5fd' },
       hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
-    },
-    {
+    }
+  ];
+
+  if (showBB) {
+    traces.push(
+      {
+        x: x,
+        y: bb.upper,
+        mode: 'lines',
+        type: 'scatter',
+        name: `BB Superior (${window}, ${BB_STD_MULT})`,
+        line: { width: 2, color: '#f59e0b', dash: 'dash' },
+        hovertemplate: `BB Superior<br>%{x}<br>%{y}<extra></extra>`
+      },
+      {
+        x: x,
+        y: bb.lower,
+        mode: 'lines',
+        type: 'scatter',
+        name: `BB Inferior (${window}, ${BB_STD_MULT})`,
+        line: { width: 2, color: '#f59e0b', dash: 'dash' },
+        fill: 'tonexty',
+        fillcolor: 'rgba(245,158,11,0.12)',
+        hovertemplate: `BB Inferior<br>%{x}<br>%{y}<extra></extra>`
+      }
+    );
+  }
+
+  if (showMA) {
+    traces.push({
       x: x,
       y: bb.ma,
       mode: 'lines',
       type: 'scatter',
-      name: `MM ${BB_WINDOW}`,
-      line: { width: 2, dash: 'dot' },
-      hovertemplate: `MM ${BB_WINDOW}<br>%{x}<br>%{y}<extra></extra>`
-    },
-    {
-      x: x,
-      y: bb.upper,
-      mode: 'lines',
-      type: 'scatter',
-      name: `BB Superior (${BB_WINDOW}, ${BB_STD_MULT})`,
-      line: { width: 1, dash: 'dash' },
-      hovertemplate: `BB Sup<br>%{x}<br>%{y}<extra></extra>`
-    },
-    {
-      x: x,
-      y: bb.lower,
-      mode: 'lines',
-      type: 'scatter',
-      name: `BB Inferior (${BB_WINDOW}, ${BB_STD_MULT})`,
-      line: { width: 1, dash: 'dash' },
-      fill: 'tonexty',
-      fillcolor: 'rgba(148,163,184,0.12)',
-      hovertemplate: `BB Inf<br>%{x}<br>%{y}<extra></extra>`
-    }
-  ];
+      name: `MM ${window}`,
+      line: { width: 3, color: '#22c55e' },
+      hovertemplate: `MM ${window}<br>%{x}<br>%{y}<extra></extra>`
+    });
+  }
 
   const paper = buildPaperEventTraces(s, x, paperItems);
   const selectedTrace = buildSelectedPointTrace(s, x);
@@ -562,7 +628,10 @@ function renderChart(s, paperItems) {
       margin:{ t:20, r:20, b:50, l:50 },
       xaxis:{ title:'Hora' },
       yaxis:{ title:'Z-Score' },
-      legend:{ orientation:'h' }
+      legend:{ orientation:'h' },
+      shapes: [
+        { type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0, line:{ color:'#64748b', width:1, dash:'dot' } }
+      ]
     },
     { responsive:true, displayModeBar:false }
   );
@@ -649,9 +718,10 @@ function renderPairHeader(s, pair, paperItems) {
   const logs = pairFilter(s.opportunity_log, pair);
   const alerts = pairFilter(s.alerts_sent, pair);
   const positions = pairFilter(s.paper_positions, pair);
+  const window = currentIndicatorWindow();
 
   document.getElementById('pairTitle').textContent = pair || '-';
-  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'} | MM ${BB_WINDOW} | Bollinger ${BB_WINDOW}/${BB_STD_MULT}`;
+  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'} | MM ${window} | BB ${window}/${BB_STD_MULT}`;
 
   document.getElementById('pairKpis').innerHTML = `
     <div class="mini-kpi">
@@ -683,11 +753,11 @@ function renderPairHeader(s, pair, paperItems) {
 
 function renderAll(s) {
   stateCache = s;
+  initIndicatorControls();
 
   const paperSource = getPaperEventsSource(s);
-  const resolvedPair = getDefaultPair(s);
-  activePair = resolvedPair;
-  saveActivePair(activePair);
+  activePair = getDefaultPair(s);
+  saveLS(ACTIVE_TAB_KEY, activePair);
 
   const filteredLogs = pairFilter(s.opportunity_log, activePair);
   const filteredPaper = pairFilter(paperSource.items, activePair);
