@@ -1,37 +1,32 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
+from zoneinfo import ZoneInfo
 
 from engine.iol_provider import IOLConfig, IOLMarketProvider
 from engine.live_desk import LiveDesk
 from engine.simulator import DeskSimulator
 
-app = FastAPI(title="ARG Trading Desk", version="2.2.0")
+app = FastAPI(title="ARG Trading Desk", version="3.0.0")
 HTML_PATH = Path(__file__).parent / "templates" / "index.html"
 
 USE_IOL = os.getenv("USE_IOL", "0") == "1"
 IOL_USERNAME = os.getenv("IOL_USERNAME", "")
 IOL_PASSWORD = os.getenv("IOL_PASSWORD", "")
 CAPITAL = float(os.getenv("CAPITAL", "25000000"))
+PAIR_WINDOW = int(os.getenv("PAIR_WINDOW", "20"))
 
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Argentina/Buenos_Aires")
 LOCAL_TZ = ZoneInfo(APP_TIMEZONE)
 
-LIVE_SYMBOLS = [
-    "AL30", "GD30",
-    "AL30D", "GD30D",
-    "AL35", "GD35",
-    "AL35D", "GD35D",
-    "AL41", "GD41",
-    "S31L6",
-]
+SQLITE_PATH = os.getenv("SQLITE_PATH", "data/trading_desk.db")
 
 DEFAULT_PAIRS = [
     ("AL30", "AL30D"),
@@ -59,31 +54,160 @@ TIME_LIST_KEYS = {
     "series_timestamps",
 }
 
-_live_engine = None
+_live_engine: LiveDesk | None = None
 _sim_engine = DeskSimulator()
+
+
+def _ensure_db_dir() -> None:
+    db_path = Path(SQLITE_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _db_conn() -> sqlite3.Connection:
+    _ensure_db_dir()
+    conn = sqlite3.connect(SQLITE_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _ensure_config_table() -> None:
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS configured_pairs (
+                left_symbol TEXT NOT NULL,
+                right_symbol TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (left_symbol, right_symbol)
+            )
+            """
+        )
+        conn.commit()
+
+
+def _normalize_symbol(value: str) -> str:
+    return str(value or "").strip().upper()
+
+
+def _normalize_pair(left: str, right: str) -> tuple[str, str]:
+    l = _normalize_symbol(left)
+    r = _normalize_symbol(right)
+    if not l or not r:
+        raise ValueError("Ticker vacío.")
+    if l == r:
+        raise ValueError("Los tickers no pueden ser iguales.")
+    return l, r
+
+
+def _load_manual_pairs() -> list[tuple[str, str]]:
+    _ensure_config_table()
+    with _db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT left_symbol, right_symbol
+            FROM configured_pairs
+            ORDER BY created_at ASC, left_symbol ASC, right_symbol ASC
+            """
+        ).fetchall()
+    return [(str(r["left_symbol"]), str(r["right_symbol"])) for r in rows]
+
+
+def _save_manual_pair(left: str, right: str) -> tuple[str, str]:
+    pair = _normalize_pair(left, right)
+    _ensure_config_table()
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO configured_pairs (left_symbol, right_symbol, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (pair[0], pair[1], datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+    return pair
+
+
+def _delete_manual_pair(left: str, right: str) -> tuple[str, str]:
+    pair = _normalize_pair(left, right)
+    _ensure_config_table()
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            DELETE FROM configured_pairs
+            WHERE left_symbol = ? AND right_symbol = ?
+            """,
+            (pair[0], pair[1]),
+        )
+        conn.commit()
+    return pair
+
+
+def _all_pairs() -> list[tuple[str, str]]:
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+
+    for left, right in DEFAULT_PAIRS + _load_manual_pairs():
+        key = f"{left}/{right}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((left, right))
+
+    return out
+
+
+def _all_symbols() -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+
+    for left, right in _all_pairs():
+        for sym in (left, right):
+            if sym not in seen:
+                seen.add(sym)
+                out.append(sym)
+
+    if "S31L6" not in seen:
+        out.append("S31L6")
+
+    return out
+
+
+def _pair_names(pairs: list[tuple[str, str]]) -> list[str]:
+    return [f"{a}/{b}" for a, b in pairs]
+
+
+def _rebuild_live_engine() -> LiveDesk:
+    global _live_engine
+
+    pairs = _all_pairs()
+    symbols = _all_symbols()
+
+    provider = IOLMarketProvider(
+        symbols=symbols,
+        config=IOLConfig(
+            username=IOL_USERNAME,
+            password=IOL_PASSWORD,
+            base_url=os.getenv("IOL_BASE_URL", "https://api.invertironline.com").rstrip("/"),
+            token_path=os.getenv("IOL_TOKEN_PATH", "/token"),
+            market=os.getenv("IOL_MARKET", "bCBA"),
+            timeout=int(os.getenv("IOL_TIMEOUT", "15")),
+        ),
+    )
+
+    _live_engine = LiveDesk(
+        provider=provider,
+        capital=CAPITAL,
+        pairs=pairs,
+        window=PAIR_WINDOW,
+    )
+    return _live_engine
 
 
 def get_engine():
     global _live_engine
     if USE_IOL and IOL_USERNAME and IOL_PASSWORD:
         if _live_engine is None:
-            provider = IOLMarketProvider(
-                symbols=LIVE_SYMBOLS,
-                config=IOLConfig(
-                    username=IOL_USERNAME,
-                    password=IOL_PASSWORD,
-                    base_url=os.getenv("IOL_BASE_URL", "https://api.invertironline.com").rstrip("/"),
-                    token_path=os.getenv("IOL_TOKEN_PATH", "/token"),
-                    market=os.getenv("IOL_MARKET", "bCBA"),
-                    timeout=int(os.getenv("IOL_TIMEOUT", "15")),
-                ),
-            )
-            _live_engine = LiveDesk(
-                provider=provider,
-                capital=CAPITAL,
-                pairs=DEFAULT_PAIRS,
-                window=int(os.getenv("PAIR_WINDOW", "20")),
-            )
+            return _rebuild_live_engine()
         return _live_engine
     return _sim_engine
 
@@ -161,6 +285,11 @@ def _localize_payload(obj: Any, parent_key: str | None = None) -> Any:
     return obj
 
 
+@app.on_event("startup")
+def startup() -> None:
+    _ensure_config_table()
+
+
 @app.get("/", response_class=HTMLResponse)
 def root() -> HTMLResponse:
     return HTMLResponse(HTML_PATH.read_text(encoding="utf-8"))
@@ -168,12 +297,77 @@ def root() -> HTMLResponse:
 
 @app.get("/health")
 def health() -> JSONResponse:
+    pairs = _all_pairs()
     return JSONResponse(
         {
             "ok": True,
             "timezone": APP_TIMEZONE,
-            "symbols": LIVE_SYMBOLS,
-            "pairs": [f"{a}/{b}" for a, b in DEFAULT_PAIRS],
+            "db_path": SQLITE_PATH,
+            "symbols": _all_symbols(),
+            "pairs": _pair_names(pairs),
+            "manual_pairs": _pair_names(_load_manual_pairs()),
+        }
+    )
+
+
+@app.get("/api/config")
+def get_config() -> JSONResponse:
+    return JSONResponse(
+        {
+            "timezone": APP_TIMEZONE,
+            "db_path": SQLITE_PATH,
+            "default_pairs": _pair_names(DEFAULT_PAIRS),
+            "manual_pairs": _pair_names(_load_manual_pairs()),
+            "pairs": _pair_names(_all_pairs()),
+            "symbols": _all_symbols(),
+        }
+    )
+
+
+@app.post("/api/config/pairs")
+def add_pair(payload: dict = Body(...)) -> JSONResponse:
+    left = payload.get("left")
+    right = payload.get("right")
+
+    try:
+        pair = _save_manual_pair(left, right)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if USE_IOL and IOL_USERNAME and IOL_PASSWORD:
+        _rebuild_live_engine()
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "added": f"{pair[0]}/{pair[1]}",
+            "manual_pairs": _pair_names(_load_manual_pairs()),
+            "pairs": _pair_names(_all_pairs()),
+            "symbols": _all_symbols(),
+        }
+    )
+
+
+@app.delete("/api/config/pairs")
+def delete_pair(payload: dict = Body(...)) -> JSONResponse:
+    left = payload.get("left")
+    right = payload.get("right")
+
+    try:
+        pair = _delete_manual_pair(left, right)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if USE_IOL and IOL_USERNAME and IOL_PASSWORD:
+        _rebuild_live_engine()
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "deleted": f"{pair[0]}/{pair[1]}",
+            "manual_pairs": _pair_names(_load_manual_pairs()),
+            "pairs": _pair_names(_all_pairs()),
+            "symbols": _all_symbols(),
         }
     )
 
@@ -183,11 +377,15 @@ def state() -> JSONResponse:
     engine = get_engine()
     desk = engine.build_state()
 
+    pairs = _all_pairs()
     payload = {
         "mode": getattr(desk, "mode", "SIM"),
         "timezone": APP_TIMEZONE,
-        "symbols": LIVE_SYMBOLS,
-        "pairs": [f"{a}/{b}" for a, b in DEFAULT_PAIRS],
+        "db_path": SQLITE_PATH,
+        "symbols": _all_symbols(),
+        "pairs": _pair_names(pairs),
+        "default_pairs": _pair_names(DEFAULT_PAIRS),
+        "manual_pairs": _pair_names(_load_manual_pairs()),
         "quotes": {
             sym: {
                 "bid": q.bid,

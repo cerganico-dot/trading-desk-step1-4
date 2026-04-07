@@ -14,7 +14,6 @@ from .signal_filter import FilterConfig, SignalFilter
 
 TEST_PERTURB = os.getenv("TEST_PERTURB", "0") == "1"
 
-
 PAIR_CONFIGS: Dict[str, Dict[str, float]] = {
     "AL30/AL30D": {"entry": 1.8, "exit": 0.6, "weight": 1.0},
     "GD30/GD30D": {"entry": 1.8, "exit": 0.6, "weight": 1.0},
@@ -26,7 +25,6 @@ PAIR_CONFIGS: Dict[str, Dict[str, float]] = {
     "GD35/GD35D": {"entry": 2.0, "exit": 0.7, "weight": 0.4},
     "AL41/GD41": {"entry": 2.2, "exit": 0.8, "weight": 0.3},
 }
-
 DEFAULT_PAIR_CONFIG = {"entry": 1.6, "exit": 0.5, "weight": 1.0}
 
 
@@ -37,7 +35,7 @@ class LiveDesk:
         self.window = int(window)
 
         clean_pairs: List[Tuple[str, str]] = []
-        seen = set()
+        seen: set[str] = set()
         for left, right in pairs:
             key = f"{left}/{right}"
             if key in seen:
@@ -234,16 +232,15 @@ class LiveDesk:
             self.store.save_paper_events(paper_events)
 
         notes = [
-            "Paso 1 activo: alertas en consola y Telegram opcional.",
-            "Paso 2 activo: persistencia SQLite de oportunidades, alertas y paper events.",
-            "Paso 3 activo: filtro profesional por z-score, volumen, spread y edge neto de costos.",
-            "Paso 4 activo: paper trading con apertura/cierre por reversión a la media.",
+            "Modo LIVE con configuración dinámica de pares.",
+            "Persistencia SQLite activa para snapshots, oportunidades, alertas y paper events.",
+            "Los pares manuales arrancan con histórico vacío y necesitan warm-up.",
+            f"Pares activos: {', '.join(self.pair_names)}",
             f"Observaciones acumuladas: {max((len(v) for v in self.scanner.history.values()), default=0)}",
             f"Open paper positions: {len(open_positions)}",
-            f"Pares activos: {', '.join(self.pair_names)}",
         ]
         if TEST_PERTURB:
-            notes.append("TEST_PERTURB=1 activo: se agregan micro-variaciones sintéticas para probar señales fuera de rueda.")
+            notes.append("TEST_PERTURB=1 activo.")
 
         return DeskState(
             mode="LIVE",

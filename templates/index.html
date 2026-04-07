@@ -7,7 +7,7 @@
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
-    .wrap { max-width: 1520px; margin: 0 auto; padding: 20px; }
+    .wrap { max-width: 1540px; margin: 0 auto; padding: 20px; }
     .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
     .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
     .span-12 { grid-column: span 12; }
@@ -49,13 +49,30 @@
     }
     .mini-kpi .label { color:#93c5fd; font-size:12px; }
     .mini-kpi .value { font-size:16px; margin-top:4px; }
-    .chart-toolbar {
-      display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:10px;
-      font-size:13px; color:#cbd5e1;
+    .pair-form {
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px;
     }
-    .chart-toolbar label { display:flex; align-items:center; gap:6px; cursor:pointer; }
-    .chart-toolbar select {
-      background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:6px 8px;
+    .pair-form input {
+      background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:10px;
+      padding:10px 12px; min-width:140px;
+    }
+    .btn {
+      background:#1d4ed8; color:white; border:1px solid #2563eb; border-radius:10px;
+      padding:10px 14px; cursor:pointer;
+    }
+    .btn.secondary {
+      background:#0b1220; color:#cbd5e1; border-color:#334155;
+    }
+    .chip-list {
+      display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;
+    }
+    .chip {
+      display:flex; align-items:center; gap:8px; padding:8px 10px;
+      border:1px solid #334155; border-radius:999px; background:#0b1220; font-size:12px;
+    }
+    .chip button {
+      background:#450a0a; color:#fca5a5; border:1px solid #7f1d1d;
+      border-radius:999px; cursor:pointer; padding:2px 8px;
     }
   </style>
 </head>
@@ -65,9 +82,17 @@
     <div class="card span-12">
       <h1>ARG Trading Desk</h1>
       <div class="muted" id="modeLabel">Cargando...</div>
-      <div class="muted" id="buildLabel">UI v2.4 BB/MM</div>
+      <div class="ok" id="storageLabel"></div>
       <div class="warn" id="debugBox"></div>
-      <div class="ok" id="paperSourceBox"></div>
+
+      <div class="pair-form">
+        <input id="leftTickerInput" placeholder="Ticker izquierdo" />
+        <input id="rightTickerInput" placeholder="Ticker derecho" />
+        <button class="btn" id="addPairBtn">Agregar par</button>
+        <button class="btn secondary" id="refreshBtn">Refrescar</button>
+      </div>
+
+      <div class="chip-list" id="manualPairsList"></div>
       <div class="tabs" id="pairTabs"></div>
     </div>
 
@@ -93,18 +118,7 @@
 
     <div class="card span-12">
       <h3>Z-Score histórico</h3>
-      <div class="chart-toolbar">
-        <label><input type="checkbox" id="toggleMA" checked /> Media móvil</label>
-        <label><input type="checkbox" id="toggleBB" checked /> Bollinger Bands</label>
-        <label>Ventana
-          <select id="indicatorWindow">
-            <option value="10">10</option>
-            <option value="20" selected>20</option>
-            <option value="30">30</option>
-          </select>
-        </label>
-      </div>
-      <div id="zscoreChart" style="height:460px;"></div>
+      <div id="zscoreChart" style="height:440px;"></div>
     </div>
 
     <div class="card span-6">
@@ -187,63 +201,13 @@ let stateCache = null;
 let selectedPoint = null;
 let activePair = null;
 
-const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v1';
-const INDICATOR_WINDOW_KEY = 'tradingdesk_indicator_window_v1';
-const TOGGLE_MA_KEY = 'tradingdesk_toggle_ma_v1';
-const TOGGLE_BB_KEY = 'tradingdesk_toggle_bb_v1';
-const BB_STD_MULT = 2;
+const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v2';
 
-function saveLS(key, value) {
-  try { localStorage.setItem(key, value); } catch (_) {}
+function saveActivePair(pair) {
+  try { if (pair) localStorage.setItem(ACTIVE_TAB_KEY, pair); } catch (_) {}
 }
-function loadLS(key, fallback = null) {
-  try {
-    const v = localStorage.getItem(key);
-    return v === null ? fallback : v;
-  } catch (_) {
-    return fallback;
-  }
-}
-
-function currentIndicatorWindow() {
-  const el = document.getElementById('indicatorWindow');
-  const value = el ? el.value : loadLS(INDICATOR_WINDOW_KEY, '20');
-  return Number(value || 20);
-}
-function isMAToggled() {
-  const el = document.getElementById('toggleMA');
-  return el ? el.checked : loadLS(TOGGLE_MA_KEY, '1') === '1';
-}
-function isBBToggled() {
-  const el = document.getElementById('toggleBB');
-  return el ? el.checked : loadLS(TOGGLE_BB_KEY, '1') === '1';
-}
-
-function initIndicatorControls() {
-  const windowEl = document.getElementById('indicatorWindow');
-  const maEl = document.getElementById('toggleMA');
-  const bbEl = document.getElementById('toggleBB');
-
-  if (windowEl.dataset.bound === '1') return;
-
-  windowEl.value = loadLS(INDICATOR_WINDOW_KEY, '20');
-  maEl.checked = loadLS(TOGGLE_MA_KEY, '1') === '1';
-  bbEl.checked = loadLS(TOGGLE_BB_KEY, '1') === '1';
-
-  windowEl.addEventListener('change', () => {
-    saveLS(INDICATOR_WINDOW_KEY, windowEl.value);
-    if (stateCache) renderAll(stateCache);
-  });
-  maEl.addEventListener('change', () => {
-    saveLS(TOGGLE_MA_KEY, maEl.checked ? '1' : '0');
-    if (stateCache) renderAll(stateCache);
-  });
-  bbEl.addEventListener('change', () => {
-    saveLS(TOGGLE_BB_KEY, bbEl.checked ? '1' : '0');
-    if (stateCache) renderAll(stateCache);
-  });
-
-  windowEl.dataset.bound = '1';
+function loadActivePair() {
+  try { return localStorage.getItem(ACTIVE_TAB_KEY); } catch (_) { return null; }
 }
 
 function fmt(n, digits = 4) {
@@ -275,6 +239,25 @@ function getSeriesKeys(s) {
   return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
 }
 
+function getAvailablePairs(s) {
+  const set = new Set();
+  (s.pairs || []).forEach(p => set.add(String(p)));
+  Object.keys(s.zscore_history || {}).forEach(p => set.add(String(p)));
+  (s.opportunity_log || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
+  return Array.from(set).filter(Boolean);
+}
+
+function getDefaultPair(s) {
+  const pairs = getAvailablePairs(s);
+  if (!pairs.length) return null;
+
+  const saved = loadActivePair();
+  if (saved && pairs.includes(saved)) return saved;
+  if (activePair && pairs.includes(activePair)) return activePair;
+
+  return pairs[0];
+}
+
 function getPaperEventsSource(s) {
   const candidates = [
     ['paper_events', s.paper_events],
@@ -294,77 +277,6 @@ function getPaperEventsSource(s) {
     if (Array.isArray(value)) return { name, items: value };
   }
   return { name: 'none', items: [] };
-}
-
-function getAvailablePairs(s) {
-  const set = new Set();
-  (s.pairs || []).forEach(p => set.add(String(p)));
-  Object.keys(s.zscore_history || {}).forEach(p => set.add(String(p)));
-  (s.opportunity_log || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
-  (s.alerts_sent || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
-  (s.paper_positions || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
-
-  const paperSource = getPaperEventsSource(s);
-  (paperSource.items || []).forEach(x => {
-    const p = x.pair || x.symbol || x.instrument || x.series;
-    if (p) set.add(String(p));
-  });
-
-  return Array.from(set).filter(Boolean);
-}
-
-function getDefaultPair(s) {
-  const pairs = getAvailablePairs(s);
-  if (!pairs.length) return null;
-
-  const saved = loadLS(ACTIVE_TAB_KEY, null);
-  if (saved && pairs.includes(saved)) return saved;
-  if (activePair && pairs.includes(activePair)) return activePair;
-
-  return pairs[0];
-}
-
-function renderTabs(s) {
-  const tabsEl = document.getElementById('pairTabs');
-  const pairs = getAvailablePairs(s);
-  activePair = getDefaultPair(s);
-  saveLS(ACTIVE_TAB_KEY, activePair);
-
-  tabsEl.innerHTML = '';
-  pairs.forEach(pair => {
-    const btn = document.createElement('button');
-    btn.className = `tab-btn ${pair === activePair ? 'active' : ''}`;
-    btn.textContent = pair;
-    btn.addEventListener('click', () => {
-      activePair = pair;
-      saveLS(ACTIVE_TAB_KEY, activePair);
-      selectedPoint = null;
-      renderAll(stateCache);
-    });
-    tabsEl.appendChild(btn);
-  });
-}
-
-function renderRisk(r) {
-  document.getElementById('riskBox').innerHTML = `
-    <div>Capital</div><div>${fmt(r.capital,2)}</div>
-    <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
-    <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
-    <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
-    <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
-    <div>Utilización</div><div>${fmt((r.utilization_pct || 0) * 100,2)}%</div>
-    <div>Status</div><div>${r.status || '-'}</div>
-  `;
-}
-
-function renderNotes(notes) {
-  const el = document.getElementById('notes');
-  el.innerHTML = '';
-  (notes || []).forEach(n => {
-    const li = document.createElement('li');
-    li.textContent = n;
-    el.appendChild(li);
-  });
 }
 
 function getEventIndexFromTime(item, x) {
@@ -437,37 +349,101 @@ function pairFilter(items, pair) {
   });
 }
 
-function rollingMean(values, window) {
-  const out = new Array(values.length).fill(null);
-  for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1);
-    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
-    const sum = slice.reduce((a, b) => a + b, 0);
-    out[i] = sum / window;
+function renderManualPairsList(s) {
+  const el = document.getElementById('manualPairsList');
+  el.innerHTML = '';
+
+  const manualPairs = s.manual_pairs || [];
+  if (!manualPairs.length) {
+    const span = document.createElement('span');
+    span.className = 'muted';
+    span.textContent = 'Sin pares manuales cargados.';
+    el.appendChild(span);
+    return;
   }
-  return out;
+
+  manualPairs.forEach(pairName => {
+    const [left, right] = String(pairName).split('/');
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `<span>${pairName}</span>`;
+
+    const btn = document.createElement('button');
+    btn.textContent = 'X';
+    btn.addEventListener('click', async () => {
+      await deletePair(left, right);
+    });
+
+    chip.appendChild(btn);
+    el.appendChild(chip);
+  });
 }
 
-function rollingStd(values, window) {
-  const out = new Array(values.length).fill(null);
-  for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1);
-    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
-    const mean = slice.reduce((a, b) => a + b, 0) / window;
-    const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
-    out[i] = Math.sqrt(variance);
-  }
-  return out;
+function renderTabs(s) {
+  const tabsEl = document.getElementById('pairTabs');
+  const pairs = getAvailablePairs(s);
+  activePair = getDefaultPair(s);
+  saveActivePair(activePair);
+
+  tabsEl.innerHTML = '';
+  pairs.forEach(pair => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${pair === activePair ? 'active' : ''}`;
+    btn.textContent = pair;
+    btn.addEventListener('click', () => {
+      activePair = pair;
+      saveActivePair(activePair);
+      selectedPoint = null;
+      renderAll(stateCache);
+    });
+    tabsEl.appendChild(btn);
+  });
 }
 
-function buildBollinger(values, window, mult) {
-  const ma = rollingMean(values, window);
-  const std = rollingStd(values, window);
-  const upper = ma.map((m, i) => (m === null || std[i] === null ? null : m + std[i] * mult));
-  const lower = ma.map((m, i) => (m === null || std[i] === null ? null : m - std[i] * mult));
-  return { ma, upper, lower };
+function renderRisk(r) {
+  document.getElementById('riskBox').innerHTML = `
+    <div>Capital</div><div>${fmt(r.capital,2)}</div>
+    <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
+    <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
+    <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
+    <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
+    <div>Utilización</div><div>${fmt((r.utilization_pct || 0) * 100,2)}%</div>
+    <div>Status</div><div>${r.status || '-'}</div>
+  `;
+}
+
+function renderNotes(notes) {
+  const el = document.getElementById('notes');
+  el.innerHTML = '';
+  (notes || []).forEach(n => {
+    const li = document.createElement('li');
+    li.textContent = n;
+    el.appendChild(li);
+  });
+}
+
+function buildSelectedPointTrace(s, x) {
+  if (!selectedPoint || !selectedPoint.pair) return null;
+  const pair = selectedPoint.pair;
+  const idx = normalizeIndex(selectedPoint.series_index);
+
+  if (pair !== activePair) return null;
+  if (idx === null) return null;
+  if (!s.zscore_history || !Array.isArray(s.zscore_history[pair])) return null;
+  if (idx < 0 || idx >= x.length) return null;
+
+  const yVal = s.zscore_history[pair][idx];
+  if (yVal === null || yVal === undefined) return null;
+
+  return {
+    x: [x[idx]],
+    y: [yVal],
+    mode: 'markers',
+    type: 'scatter',
+    name: 'Selección',
+    marker: { size: 16, symbol: 'circle-open-dot', line: { width: 3 } },
+    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+  };
 }
 
 function buildPaperEventTraces(s, x, paperItems) {
@@ -493,7 +469,13 @@ function buildPaperEventTraces(s, x, paperItems) {
     grouped[pair].x.push(x[idx]);
     grouped[pair].y.push(zHistory[idx]);
     grouped[pair].text.push(
-      [getEventTime(item), getEventType(item), pair, getEventSide(item), `PnL: ${fmt(getEventPnl(item), 2)}`].join(' | ')
+      [
+        getEventTime(item),
+        getEventType(item),
+        pair,
+        getEventSide(item),
+        `PnL: ${fmt(getEventPnl(item), 2)}`
+      ].join(' | ')
     );
     grouped[pair].symbols.push(isClose ? 'diamond-open' : 'diamond');
     grouped[pair].sizes.push(isClose ? 12 : 11);
@@ -508,111 +490,35 @@ function buildPaperEventTraces(s, x, paperItems) {
       mode: 'markers',
       type: 'scatter',
       name: `Paper ${pair}`,
-      marker: {
-        size: grouped[pair].sizes,
-        symbol: grouped[pair].symbols,
-        color: '#f59e0b',
-        line: { width: 2, color: '#ffffff' }
-      },
+      marker: { size: grouped[pair].sizes, symbol: grouped[pair].symbols, line: { width: 2 } },
       hovertemplate: '%{text}<extra></extra>'
     })),
     plottedCount
   };
 }
 
-function buildSelectedPointTrace(s, x) {
-  if (!selectedPoint || !selectedPoint.pair) return null;
-  const pair = selectedPoint.pair;
-  const idx = normalizeIndex(selectedPoint.series_index);
-
-  if (pair !== activePair) return null;
-  if (idx === null) return null;
-  if (!s.zscore_history || !Array.isArray(s.zscore_history[pair])) return null;
-  if (idx < 0 || idx >= x.length) return null;
-
-  const yVal = s.zscore_history[pair][idx];
-  if (yVal === null || yVal === undefined) return null;
-
-  return {
-    x: [x[idx]],
-    y: [yVal],
-    mode: 'markers',
-    type: 'scatter',
-    name: 'Selección',
-    marker: { size: 16, symbol: 'circle-open-dot', color: '#ffffff', line: { width: 3, color: '#ef4444' } },
-    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
-  };
-}
-
 function renderChart(s, paperItems) {
-  const x = s.series_timestamps || [];
-  const zh = s.zscore_history || {};
   const pair = activePair;
-  const window = currentIndicatorWindow();
-  const showMA = isMAToggled();
-  const showBB = isBBToggled();
+  const x = s.series_timestamps || [];
+  const y = (s.zscore_history || {})[pair] || [];
 
-  if (!pair || !x.length || !Array.isArray(zh[pair]) || !zh[pair].length) {
+  if (!pair || !x.length || !y.length) {
     document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente para este par.</div>';
     return;
   }
 
-  const zValues = zh[pair].map(v => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  });
-
-  const bb = buildBollinger(zValues, window, BB_STD_MULT);
-
   const traces = [{
-    x: x,
-    y: zValues,
+    x,
+    y,
     mode: 'lines+markers',
     type: 'scatter',
     name: pair,
-    line: { width: 3, color: '#60a5fa' },
-    marker: { size: 6, color: '#60a5fa' },
     hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
   }];
 
-  if (showBB) {
-    traces.push({
-      x: x,
-      y: bb.upper,
-      mode: 'lines',
-      type: 'scatter',
-      name: `BB Superior (${window}, ${BB_STD_MULT})`,
-      line: { width: 3, color: '#ef4444', dash: 'dash' },
-      hovertemplate: `BB Superior<br>%{x}<br>%{y}<extra></extra>`
-    });
-
-    traces.push({
-      x: x,
-      y: bb.lower,
-      mode: 'lines',
-      type: 'scatter',
-      name: `BB Inferior (${window}, ${BB_STD_MULT})`,
-      line: { width: 3, color: '#f59e0b', dash: 'dash' },
-      fill: 'tonexty',
-      fillcolor: 'rgba(245,158,11,0.20)',
-      hovertemplate: `BB Inferior<br>%{x}<br>%{y}<extra></extra>`
-    });
-  }
-
-  if (showMA) {
-    traces.push({
-      x: x,
-      y: bb.ma,
-      mode: 'lines',
-      type: 'scatter',
-      name: `MM ${window}`,
-      line: { width: 4, color: '#22c55e' },
-      hovertemplate: `MM ${window}<br>%{x}<br>%{y}<extra></extra>`
-    });
-  }
-
   const paper = buildPaperEventTraces(s, x, paperItems);
   const selectedTrace = buildSelectedPointTrace(s, x);
+
   if (selectedTrace) traces.push(selectedTrace);
   traces.push(...paper.traces);
 
@@ -626,18 +532,16 @@ function renderChart(s, paperItems) {
       margin:{ t:20, r:20, b:50, l:50 },
       xaxis:{ title:'Hora' },
       yaxis:{ title:'Z-Score' },
-      legend:{ orientation:'h' },
-      shapes: [
-        { type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0, line:{ color:'#64748b', width:1, dash:'dot' } }
-      ]
+      legend:{ orientation:'h' }
     },
-    { responsive:true, displayModeBar:true }
+    { responsive:true, displayModeBar:false }
   );
 
   const totalEvents = Array.isArray(paperItems) ? paperItems.length : 0;
   document.getElementById('debugBox').textContent =
-    `UI v2.4 | Pair: ${pair || '-'} | MM: ${showMA ? 'ON' : 'OFF'} | BB: ${showBB ? 'ON' : 'OFF'} | Window: ${window}` +
-    (totalEvents > 0 && paper.plottedCount === 0 ? ` | Paper no mapeado: ${totalEvents}` : '');
+    totalEvents > 0 && paper.plottedCount === 0
+      ? `Paper detectado para ${pair}: ${totalEvents} eventos, pero no se pudieron mapear al gráfico.`
+      : '';
 }
 
 function setActiveRow(tbodyId, row) {
@@ -715,10 +619,9 @@ function renderPairHeader(s, pair, paperItems) {
   const logs = pairFilter(s.opportunity_log, pair);
   const alerts = pairFilter(s.alerts_sent, pair);
   const positions = pairFilter(s.paper_positions, pair);
-  const window = currentIndicatorWindow();
 
   document.getElementById('pairTitle').textContent = pair || '-';
-  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'} | MM ${window} | BB ${window}/${BB_STD_MULT}`;
+  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'}`;
 
   document.getElementById('pairKpis').innerHTML = `
     <div class="mini-kpi">
@@ -750,21 +653,19 @@ function renderPairHeader(s, pair, paperItems) {
 
 function renderAll(s) {
   stateCache = s;
-  initIndicatorControls();
 
   const paperSource = getPaperEventsSource(s);
   activePair = getDefaultPair(s);
-  saveLS(ACTIVE_TAB_KEY, activePair);
+  saveActivePair(activePair);
 
   const filteredLogs = pairFilter(s.opportunity_log, activePair);
   const filteredPaper = pairFilter(paperSource.items, activePair);
   const filteredAlerts = pairFilter(s.alerts_sent, activePair);
   const filteredPositions = pairFilter(s.paper_positions, activePair);
 
-  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'} | TZ: ${s.timezone || '-'}`;
-  document.getElementById('paperSourceBox').textContent =
-    `Paper source: ${paperSource.name} | pair: ${activePair || '-'} | rows: ${filteredPaper.length}`;
-
+  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'} | TZ: ${s.timezone || '-'} | Symbols: ${(s.symbols || []).length}`;
+  document.getElementById('storageLabel').textContent = `DB: ${s.db_path || '-'}`;
+  renderManualPairsList(s);
   renderTabs(s);
   renderPairHeader(s, activePair, filteredPaper);
   renderRisk(s.risk_report || {});
@@ -808,16 +709,81 @@ function renderAll(s) {
   attachPaperRowHandlers(s, filteredPaper);
 }
 
+async function loadState() {
+  const r = await fetch('/api/state');
+  if (!r.ok) throw new Error('No se pudo cargar /api/state');
+  return await r.json();
+}
+
+async function addPair() {
+  const left = document.getElementById('leftTickerInput').value.trim().toUpperCase();
+  const right = document.getElementById('rightTickerInput').value.trim().toUpperCase();
+
+  if (!left || !right) {
+    document.getElementById('debugBox').textContent = 'Completá ambos tickers.';
+    return;
+  }
+
+  const r = await fetch('/api/config/pairs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ left, right })
+  });
+
+  const data = await r.json();
+  if (!r.ok) {
+    document.getElementById('debugBox').textContent = data.detail || 'Error agregando par.';
+    return;
+  }
+
+  document.getElementById('leftTickerInput').value = '';
+  document.getElementById('rightTickerInput').value = '';
+  activePair = data.added || `${left}/${right}`;
+  saveActivePair(activePair);
+  document.getElementById('debugBox').textContent = '';
+  await refresh();
+}
+
+async function deletePair(left, right) {
+  const r = await fetch('/api/config/pairs', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ left, right })
+  });
+
+  const data = await r.json();
+  if (!r.ok) {
+    document.getElementById('debugBox').textContent = data.detail || 'Error eliminando par.';
+    return;
+  }
+
+  if (activePair === `${left}/${right}`) {
+    activePair = null;
+    saveActivePair('');
+  }
+
+  document.getElementById('debugBox').textContent = '';
+  await refresh();
+}
+
 async function refresh() {
   try {
-    const r = await fetch('/api/state');
-    const data = await r.json();
+    const data = await loadState();
     renderAll(data);
   } catch (e) {
     console.error(e);
     document.getElementById('debugBox').textContent = 'Error cargando /api/state';
   }
 }
+
+document.getElementById('addPairBtn').addEventListener('click', addPair);
+document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('leftTickerInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addPair();
+});
+document.getElementById('rightTickerInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addPair();
+});
 
 refresh();
 setInterval(refresh, 2000);
