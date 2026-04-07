@@ -6,15 +6,16 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from zoneinfo import ZoneInfo
 
+from engine.historical_phase1 import HistoricalPhase1Service
 from engine.iol_provider import IOLConfig, IOLMarketProvider
 from engine.live_desk import LiveDesk
 from engine.simulator import DeskSimulator
 
-app = FastAPI(title="ARG Trading Desk", version="3.1.0")
+app = FastAPI(title="ARG Trading Desk", version="3.2.0")
 HTML_PATH = Path(__file__).parent / "templates" / "index.html"
 
 USE_IOL = os.getenv("USE_IOL", "0") == "1"
@@ -267,6 +268,10 @@ def get_engine():
     return _sim_engine
 
 
+def _history_service() -> HistoricalPhase1Service:
+    return HistoricalPhase1Service(db_path=SQLITE_PATH)
+
+
 def _to_local_iso_string(value: str) -> str:
     raw = value.strip()
     if raw.endswith("Z"):
@@ -343,6 +348,7 @@ def _localize_payload(obj: Any, parent_key: str | None = None) -> Any:
 @app.on_event("startup")
 def startup() -> None:
     _ensure_config_table()
+    _history_service().ensure_tables()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -450,6 +456,44 @@ def delete_pair(payload: dict = Body(...)) -> JSONResponse:
             "symbols": _all_symbols(),
         }
     )
+
+
+@app.post("/api/history/phase1/bootstrap")
+def bootstrap_phase1_history(
+    payload: dict = Body(default={}),
+) -> JSONResponse:
+    years = int(payload.get("years", 2) or 2)
+    service = _history_service()
+
+    try:
+        result = service.bootstrap_phase1(years=years)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Error bootstrap histórico: {exc}") from exc
+
+    return JSONResponse(result)
+
+
+@app.get("/api/history/phase1/status")
+def phase1_status() -> JSONResponse:
+    service = _history_service()
+    return JSONResponse(service.status())
+
+
+@app.get("/api/history/phase1/al30-gd30")
+def phase1_pair_history(
+    limit: int = Query(default=600, ge=1, le=5000),
+) -> JSONResponse:
+    service = _history_service()
+    return JSONResponse(service.get_pair_history(limit=limit))
+
+
+@app.get("/api/history/phase1/bars/{symbol}")
+def phase1_symbol_bars(
+    symbol: str,
+    limit: int = Query(default=600, ge=1, le=5000),
+) -> JSONResponse:
+    service = _history_service()
+    return JSONResponse(service.get_symbol_history(symbol=symbol.upper(), limit=limit))
 
 
 @app.get("/api/state")
