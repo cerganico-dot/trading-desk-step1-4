@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -13,7 +13,7 @@ from engine.iol_provider import IOLConfig, IOLMarketProvider
 from engine.live_desk import LiveDesk
 from engine.simulator import DeskSimulator
 
-app = FastAPI(title="ARG Trading Desk", version="2.1.0")
+app = FastAPI(title="ARG Trading Desk", version="2.2.0")
 HTML_PATH = Path(__file__).parent / "templates" / "index.html"
 
 USE_IOL = os.getenv("USE_IOL", "0") == "1"
@@ -21,11 +21,29 @@ IOL_USERNAME = os.getenv("IOL_USERNAME", "")
 IOL_PASSWORD = os.getenv("IOL_PASSWORD", "")
 CAPITAL = float(os.getenv("CAPITAL", "25000000"))
 
-DEFAULT_PAIRS = [("AL30", "GD30"), ("AL30D", "GD30D")]
-LIVE_SYMBOLS = ["AL30", "GD30", "AL30D", "GD30D", "S31L6"]
-
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Argentina/Buenos_Aires")
 LOCAL_TZ = ZoneInfo(APP_TIMEZONE)
+
+LIVE_SYMBOLS = [
+    "AL30", "GD30",
+    "AL30D", "GD30D",
+    "AL35", "GD35",
+    "AL35D", "GD35D",
+    "AL41", "GD41",
+    "S31L6",
+]
+
+DEFAULT_PAIRS = [
+    ("AL30", "AL30D"),
+    ("GD30", "GD30D"),
+    ("AL30", "GD30"),
+    ("AL35", "GD35"),
+    ("AL30", "AL35"),
+    ("GD30", "GD35"),
+    ("AL35", "AL35D"),
+    ("GD35", "GD35D"),
+    ("AL41", "GD41"),
+]
 
 TIME_KEYS = {
     "ts",
@@ -60,7 +78,12 @@ def get_engine():
                     timeout=int(os.getenv("IOL_TIMEOUT", "15")),
                 ),
             )
-            _live_engine = LiveDesk(provider, capital=CAPITAL, pairs=DEFAULT_PAIRS, window=20)
+            _live_engine = LiveDesk(
+                provider=provider,
+                capital=CAPITAL,
+                pairs=DEFAULT_PAIRS,
+                window=int(os.getenv("PAIR_WINDOW", "20")),
+            )
         return _live_engine
     return _sim_engine
 
@@ -145,7 +168,14 @@ def root() -> HTMLResponse:
 
 @app.get("/health")
 def health() -> JSONResponse:
-    return JSONResponse({"ok": True, "timezone": APP_TIMEZONE})
+    return JSONResponse(
+        {
+            "ok": True,
+            "timezone": APP_TIMEZONE,
+            "symbols": LIVE_SYMBOLS,
+            "pairs": [f"{a}/{b}" for a, b in DEFAULT_PAIRS],
+        }
+    )
 
 
 @app.get("/api/state")
@@ -156,6 +186,8 @@ def state() -> JSONResponse:
     payload = {
         "mode": getattr(desk, "mode", "SIM"),
         "timezone": APP_TIMEZONE,
+        "symbols": LIVE_SYMBOLS,
+        "pairs": [f"{a}/{b}" for a, b in DEFAULT_PAIRS],
         "quotes": {
             sym: {
                 "bid": q.bid,
