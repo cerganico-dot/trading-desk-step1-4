@@ -167,6 +167,22 @@ let stateCache = null;
 let selectedPoint = null;
 let activePair = null;
 
+const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v1';
+
+function saveActivePair(pair) {
+  try {
+    if (pair) localStorage.setItem(ACTIVE_TAB_KEY, pair);
+  } catch (_) {}
+}
+
+function loadSavedActivePair() {
+  try {
+    return localStorage.getItem(ACTIVE_TAB_KEY);
+  } catch (_) {
+    return null;
+  }
+}
+
 function fmt(n, digits = 4) {
   if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
   return Number(n).toLocaleString('es-AR', { maximumFractionDigits: digits });
@@ -196,6 +212,27 @@ function getSeriesKeys(s) {
   return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
 }
 
+function getPaperEventsSource(s) {
+  const candidates = [
+    ['paper_events', s.paper_events],
+    ['paper_trades', s.paper_trades],
+    ['paper_trade_log', s.paper_trade_log],
+    ['paper_log', s.paper_log],
+    ['paper_history', s.paper_history],
+    ['paperTrading', s.paperTrading],
+    ['trades', s.trades],
+    ['events', s.events]
+  ];
+
+  for (const [name, value] of candidates) {
+    if (Array.isArray(value) && value.length) return { name, items: value };
+  }
+  for (const [name, value] of candidates) {
+    if (Array.isArray(value)) return { name, items: value };
+  }
+  return { name: 'none', items: [] };
+}
+
 function getAvailablePairs(s) {
   const set = new Set();
 
@@ -217,7 +254,11 @@ function getAvailablePairs(s) {
 function getDefaultPair(s) {
   const pairs = getAvailablePairs(s);
   if (!pairs.length) return null;
+
+  const saved = loadSavedActivePair();
+  if (saved && pairs.includes(saved)) return saved;
   if (activePair && pairs.includes(activePair)) return activePair;
+
   return pairs[0];
 }
 
@@ -226,6 +267,7 @@ function renderTabs(s) {
   const pairs = getAvailablePairs(s);
   const resolvedPair = getDefaultPair(s);
   activePair = resolvedPair;
+  saveActivePair(activePair);
 
   tabsEl.innerHTML = '';
   pairs.forEach(pair => {
@@ -234,6 +276,7 @@ function renderTabs(s) {
     btn.textContent = pair;
     btn.addEventListener('click', () => {
       activePair = pair;
+      saveActivePair(activePair);
       selectedPoint = null;
       renderAll(stateCache);
     });
@@ -261,27 +304,6 @@ function renderNotes(notes) {
     li.textContent = n;
     el.appendChild(li);
   });
-}
-
-function getPaperEventsSource(s) {
-  const candidates = [
-    ['paper_events', s.paper_events],
-    ['paper_trades', s.paper_trades],
-    ['paper_trade_log', s.paper_trade_log],
-    ['paper_log', s.paper_log],
-    ['paper_history', s.paper_history],
-    ['paperTrading', s.paperTrading],
-    ['trades', s.trades],
-    ['events', s.events]
-  ];
-
-  for (const [name, value] of candidates) {
-    if (Array.isArray(value) && value.length) return { name, items: value };
-  }
-  for (const [name, value] of candidates) {
-    if (Array.isArray(value)) return { name, items: value };
-  }
-  return { name: 'none', items: [] };
 }
 
 function getEventIndexFromTime(item, x) {
@@ -595,6 +617,7 @@ function renderAll(s) {
   const paperSource = getPaperEventsSource(s);
   const resolvedPair = getDefaultPair(s);
   activePair = resolvedPair;
+  saveActivePair(activePair);
 
   const filteredLogs = pairFilter(s.opportunity_log, activePair);
   const filteredPaper = pairFilter(paperSource.items, activePair);
