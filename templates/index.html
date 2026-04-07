@@ -65,6 +65,7 @@
     <div class="card span-12">
       <h1>ARG Trading Desk</h1>
       <div class="muted" id="modeLabel">Cargando...</div>
+      <div class="muted" id="buildLabel">UI v2.4 BB/MM</div>
       <div class="warn" id="debugBox"></div>
       <div class="ok" id="paperSourceBox"></div>
       <div class="tabs" id="pairTabs"></div>
@@ -93,8 +94,8 @@
     <div class="card span-12">
       <h3>Z-Score histórico</h3>
       <div class="chart-toolbar">
-        <label><input type="checkbox" id="toggleMA" checked> Media móvil</label>
-        <label><input type="checkbox" id="toggleBB" checked> Bollinger Bands</label>
+        <label><input type="checkbox" id="toggleMA" checked /> Media móvil</label>
+        <label><input type="checkbox" id="toggleBB" checked /> Bollinger Bands</label>
         <label>Ventana
           <select id="indicatorWindow">
             <option value="10">10</option>
@@ -103,7 +104,7 @@
           </select>
         </label>
       </div>
-      <div id="zscoreChart" style="height:420px;"></div>
+      <div id="zscoreChart" style="height:460px;"></div>
     </div>
 
     <div class="card span-6">
@@ -206,7 +207,8 @@ function loadLS(key, fallback = null) {
 
 function currentIndicatorWindow() {
   const el = document.getElementById('indicatorWindow');
-  return Number(el?.value || loadLS(INDICATOR_WINDOW_KEY, '20') || 20);
+  const value = el ? el.value : loadLS(INDICATOR_WINDOW_KEY, '20');
+  return Number(value || 20);
 }
 function isMAToggled() {
   const el = document.getElementById('toggleMA');
@@ -562,42 +564,39 @@ function renderChart(s, paperItems) {
 
   const bb = buildBollinger(zValues, window, BB_STD_MULT);
 
-  const traces = [
-    {
-      x: x,
-      y: zValues,
-      mode: 'lines+markers',
-      type: 'scatter',
-      name: pair,
-      line: { width: 3, color: '#60a5fa' },
-      marker: { size: 5, color: '#93c5fd' },
-      hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
-    }
-  ];
+  const traces = [{
+    x: x,
+    y: zValues,
+    mode: 'lines+markers',
+    type: 'scatter',
+    name: pair,
+    line: { width: 3, color: '#60a5fa' },
+    marker: { size: 6, color: '#60a5fa' },
+    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+  }];
 
   if (showBB) {
-    traces.push(
-      {
-        x: x,
-        y: bb.upper,
-        mode: 'lines',
-        type: 'scatter',
-        name: `BB Superior (${window}, ${BB_STD_MULT})`,
-        line: { width: 2, color: '#f59e0b', dash: 'dash' },
-        hovertemplate: `BB Superior<br>%{x}<br>%{y}<extra></extra>`
-      },
-      {
-        x: x,
-        y: bb.lower,
-        mode: 'lines',
-        type: 'scatter',
-        name: `BB Inferior (${window}, ${BB_STD_MULT})`,
-        line: { width: 2, color: '#f59e0b', dash: 'dash' },
-        fill: 'tonexty',
-        fillcolor: 'rgba(245,158,11,0.12)',
-        hovertemplate: `BB Inferior<br>%{x}<br>%{y}<extra></extra>`
-      }
-    );
+    traces.push({
+      x: x,
+      y: bb.upper,
+      mode: 'lines',
+      type: 'scatter',
+      name: `BB Superior (${window}, ${BB_STD_MULT})`,
+      line: { width: 3, color: '#ef4444', dash: 'dash' },
+      hovertemplate: `BB Superior<br>%{x}<br>%{y}<extra></extra>`
+    });
+
+    traces.push({
+      x: x,
+      y: bb.lower,
+      mode: 'lines',
+      type: 'scatter',
+      name: `BB Inferior (${window}, ${BB_STD_MULT})`,
+      line: { width: 3, color: '#f59e0b', dash: 'dash' },
+      fill: 'tonexty',
+      fillcolor: 'rgba(245,158,11,0.20)',
+      hovertemplate: `BB Inferior<br>%{x}<br>%{y}<extra></extra>`
+    });
   }
 
   if (showMA) {
@@ -607,18 +606,17 @@ function renderChart(s, paperItems) {
       mode: 'lines',
       type: 'scatter',
       name: `MM ${window}`,
-      line: { width: 3, color: '#22c55e' },
+      line: { width: 4, color: '#22c55e' },
       hovertemplate: `MM ${window}<br>%{x}<br>%{y}<extra></extra>`
     });
   }
 
   const paper = buildPaperEventTraces(s, x, paperItems);
   const selectedTrace = buildSelectedPointTrace(s, x);
-
   if (selectedTrace) traces.push(selectedTrace);
   traces.push(...paper.traces);
 
-  Plotly.newPlot(
+  Plotly.react(
     'zscoreChart',
     traces,
     {
@@ -633,14 +631,13 @@ function renderChart(s, paperItems) {
         { type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0, line:{ color:'#64748b', width:1, dash:'dot' } }
       ]
     },
-    { responsive:true, displayModeBar:false }
+    { responsive:true, displayModeBar:true }
   );
 
   const totalEvents = Array.isArray(paperItems) ? paperItems.length : 0;
   document.getElementById('debugBox').textContent =
-    totalEvents > 0 && paper.plottedCount === 0
-      ? `Paper detectado para ${pair}: ${totalEvents} eventos, pero no se pudieron mapear al gráfico.`
-      : '';
+    `UI v2.4 | Pair: ${pair || '-'} | MM: ${showMA ? 'ON' : 'OFF'} | BB: ${showBB ? 'ON' : 'OFF'} | Window: ${window}` +
+    (totalEvents > 0 && paper.plottedCount === 0 ? ` | Paper no mapeado: ${totalEvents}` : '');
 }
 
 function setActiveRow(tbodyId, row) {
