@@ -59,7 +59,6 @@ def health() -> JSONResponse:
 def state() -> JSONResponse:
     engine = get_engine()
     desk = engine.build_state()
-
     payload = {
         "mode": getattr(desk, "mode", "SIM"),
         "quotes": {
@@ -82,17 +81,12 @@ def state() -> JSONResponse:
         "pnl_series": desk.pnl_series,
         "timestamps": desk.timestamps,
         "notes": desk.notes,
-
-        # HISTORICOS
         "ratio_history": getattr(desk, "ratio_history", {}),
         "zscore_history": getattr(desk, "zscore_history", {}),
         "series_timestamps": getattr(desk, "series_timestamps", desk.timestamps),
-
-        # LOGS
         "opportunity_log": getattr(desk, "opportunity_log", []),
-
-        # PAPER TRADING (FIX)
-        "paper_trades": getattr(desk, "paper_trades", []),
+        "paper_positions": getattr(desk, "paper_positions", []),
+        "paper_events": getattr(desk, "paper_events", []),
+        "alerts_sent": getattr(desk, "alerts_sent", []),
     }
-
     return JSONResponse(payload)

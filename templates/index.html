@@ -430,7 +430,13 @@ function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
   body.innerHTML = '';
 
   if (!Array.isArray(items) || !items.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="5">${emptyMessage}</td></tr>`;
+    const colspans = {
+      logBody: 6,
+      paperBody: 5,
+      alertsBody: 5,
+      positionsBody: 5
+    };
+    body.innerHTML = `<tr class="empty-row"><td colspan="${colspans[id] || 5}">${emptyMessage}</td></tr>`;
     return;
   }
 
