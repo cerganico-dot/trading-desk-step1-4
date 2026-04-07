@@ -83,7 +83,7 @@
     </div>
 
     <div class="card span-12">
-      <h3>Z-Score histórico</h3>
+      <h3>Z-Score histórico + Media Móvil + Bollinger</h3>
       <div id="zscoreChart" style="height:420px;"></div>
     </div>
 
@@ -168,6 +168,8 @@ let selectedPoint = null;
 let activePair = null;
 
 const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v1';
+const BB_WINDOW = 20;
+const BB_STD_MULT = 2;
 
 function saveActivePair(pair) {
   try {
@@ -376,6 +378,39 @@ function pairFilter(items, pair) {
   });
 }
 
+function rollingMean(values, window) {
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) continue;
+    const slice = values.slice(i - window + 1, i + 1).filter(v => Number.isFinite(v));
+    if (slice.length !== window) continue;
+    const sum = slice.reduce((a, b) => a + b, 0);
+    out[i] = sum / window;
+  }
+  return out;
+}
+
+function rollingStd(values, window) {
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) continue;
+    const slice = values.slice(i - window + 1, i + 1).filter(v => Number.isFinite(v));
+    if (slice.length !== window) continue;
+    const mean = slice.reduce((a, b) => a + b, 0) / window;
+    const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
+    out[i] = Math.sqrt(variance);
+  }
+  return out;
+}
+
+function buildBollinger(values, window, mult) {
+  const ma = rollingMean(values, window);
+  const std = rollingStd(values, window);
+  const upper = ma.map((m, i) => (m === null || std[i] === null ? null : m + std[i] * mult));
+  const lower = ma.map((m, i) => (m === null || std[i] === null ? null : m - std[i] * mult));
+  return { ma, upper, lower };
+}
+
 function buildPaperEventTraces(s, x, paperItems) {
   const keys = getSeriesKeys(s);
   const grouped = {};
@@ -467,14 +502,49 @@ function renderChart(s, paperItems) {
     return;
   }
 
-  const traces = [{
-    x: x,
-    y: zh[pair],
-    mode: 'lines+markers',
-    type: 'scatter',
-    name: pair,
-    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
-  }];
+  const zValues = zh[pair].map(v => Number.isFinite(Number(v)) ? Number(v) : null);
+  const bb = buildBollinger(zValues, BB_WINDOW, BB_STD_MULT);
+
+  const traces = [
+    {
+      x: x,
+      y: zValues,
+      mode: 'lines+markers',
+      type: 'scatter',
+      name: pair,
+      line: { width: 2 },
+      hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+    },
+    {
+      x: x,
+      y: bb.ma,
+      mode: 'lines',
+      type: 'scatter',
+      name: `MM ${BB_WINDOW}`,
+      line: { width: 2, dash: 'dot' },
+      hovertemplate: `MM ${BB_WINDOW}<br>%{x}<br>%{y}<extra></extra>`
+    },
+    {
+      x: x,
+      y: bb.upper,
+      mode: 'lines',
+      type: 'scatter',
+      name: `BB Superior (${BB_WINDOW}, ${BB_STD_MULT})`,
+      line: { width: 1, dash: 'dash' },
+      hovertemplate: `BB Sup<br>%{x}<br>%{y}<extra></extra>`
+    },
+    {
+      x: x,
+      y: bb.lower,
+      mode: 'lines',
+      type: 'scatter',
+      name: `BB Inferior (${BB_WINDOW}, ${BB_STD_MULT})`,
+      line: { width: 1, dash: 'dash' },
+      fill: 'tonexty',
+      fillcolor: 'rgba(148,163,184,0.12)',
+      hovertemplate: `BB Inf<br>%{x}<br>%{y}<extra></extra>`
+    }
+  ];
 
   const paper = buildPaperEventTraces(s, x, paperItems);
   const selectedTrace = buildSelectedPointTrace(s, x);
@@ -581,7 +651,7 @@ function renderPairHeader(s, pair, paperItems) {
   const positions = pairFilter(s.paper_positions, pair);
 
   document.getElementById('pairTitle').textContent = pair || '-';
-  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'}`;
+  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'} | MM ${BB_WINDOW} | Bollinger ${BB_WINDOW}/${BB_STD_MULT}`;
 
   document.getElementById('pairKpis').innerHTML = `
     <div class="mini-kpi">
