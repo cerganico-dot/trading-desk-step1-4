@@ -14,6 +14,7 @@ from engine.historical_phase1 import HistoricalPhase1Service
 from engine.iol_provider import IOLConfig, IOLMarketProvider
 from engine.live_desk import LiveDesk
 from engine.simulator import DeskSimulator
+from engine.backtest_engine import BacktestEngine
 
 app = FastAPI(title="ARG Trading Desk", version="3.2.0")
 HTML_PATH = Path(__file__).parent / "templates" / "index.html"
@@ -495,6 +496,16 @@ def phase1_symbol_bars(
     service = _history_service()
     return JSONResponse(service.get_symbol_history(symbol=symbol.upper(), limit=limit))
 
+@app.get("/api/history/backtest/al30-gd30")
+def backtest():
+    engine = BacktestEngine(SQLITE_PATH)
+    return engine.run_backtest()
+
+
+@app.get("/api/history/optimize/al30-gd30")
+def optimize():
+    engine = BacktestEngine(SQLITE_PATH)
+    return engine.optimize()
 
 @app.get("/api/state")
 def state() -> JSONResponse:
