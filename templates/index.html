@@ -17,6 +17,7 @@
     .muted { color:#94a3b8; font-size:12px; }
     .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
     .ok { color:#86efac; font-size:12px; margin-top:8px; }
+    .hidden { display:none; }
     .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
     .kv div:nth-child(odd) { color:#93c5fd; }
     .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
@@ -74,6 +75,23 @@
       background:#450a0a; color:#fca5a5; border:1px solid #7f1d1d;
       border-radius:999px; cursor:pointer; padding:2px 8px;
     }
+    .top-mode-tabs {
+      display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;
+    }
+    .mode-btn {
+      border:1px solid #334155;
+      background:#0b1220;
+      color:#cbd5e1;
+      padding:10px 14px;
+      border-radius:10px;
+      cursor:pointer;
+      font-size:13px;
+    }
+    .mode-btn.active {
+      background:#2563eb;
+      color:#fff;
+      border-color:#2563eb;
+    }
   </style>
 </head>
 <body>
@@ -85,114 +103,167 @@
       <div class="ok" id="storageLabel"></div>
       <div class="warn" id="debugBox"></div>
 
-      <div class="pair-form">
+      <div class="pair-form" id="liveControls">
         <input id="leftTickerInput" placeholder="Ticker izquierdo" />
         <input id="rightTickerInput" placeholder="Ticker derecho" />
         <button class="btn" id="addPairBtn">Agregar par</button>
         <button class="btn secondary" id="refreshBtn">Refrescar</button>
       </div>
 
+      <div class="top-mode-tabs">
+        <button class="mode-btn active" id="modeLiveBtn">Desk Live</button>
+        <button class="mode-btn" id="modeHistBtn">Histórico AL30/GD30</button>
+      </div>
+
       <div class="chip-list" id="manualPairsList"></div>
       <div class="tabs" id="pairTabs"></div>
     </div>
 
-    <div class="card span-12">
-      <div class="pair-head">
-        <div>
-          <div class="pair-title" id="pairTitle">Par</div>
-          <div class="pair-sub" id="pairSubtitle">Detalle del arbitraje</div>
+    <div id="liveView" class="span-12">
+      <div class="grid">
+        <div class="card span-12">
+          <div class="pair-head">
+            <div>
+              <div class="pair-title" id="pairTitle">Par</div>
+              <div class="pair-sub" id="pairSubtitle">Detalle del arbitraje</div>
+            </div>
+            <div class="mini-kpis" id="pairKpis"></div>
+          </div>
         </div>
-        <div class="mini-kpis" id="pairKpis"></div>
+
+        <div class="card span-4">
+          <h3>Riesgo</h3>
+          <div id="riskBox" class="kv"></div>
+        </div>
+
+        <div class="card span-8">
+          <h3>Notas</h3>
+          <ul id="notes"></ul>
+        </div>
+
+        <div class="card span-12">
+          <h3>Z-Score histórico</h3>
+          <div id="zscoreChart" style="height:440px;"></div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Oportunidades del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Par</th>
+                  <th>Operación</th>
+                  <th>Z</th>
+                  <th>Edge</th>
+                  <th>Filtro</th>
+                </tr>
+              </thead>
+              <tbody id="logBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Paper trading del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Evento</th>
+                  <th>Par</th>
+                  <th>Side</th>
+                  <th>PnL</th>
+                </tr>
+              </thead>
+              <tbody id="paperBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Alertas del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Par</th>
+                  <th>Señal</th>
+                  <th>Z</th>
+                  <th>Canal</th>
+                </tr>
+              </thead>
+              <tbody id="alertsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Posiciones abiertas del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Par</th>
+                  <th>Side</th>
+                  <th>Entry Z</th>
+                  <th>Entry Ratio</th>
+                  <th>Notional</th>
+                </tr>
+              </thead>
+              <tbody id="positionsBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card span-4">
-      <h3>Riesgo</h3>
-      <div id="riskBox" class="kv"></div>
-    </div>
+    <div id="historyView" class="span-12 hidden">
+      <div class="grid">
+        <div class="card span-12">
+          <div class="pair-head">
+            <div>
+              <div class="pair-title">Histórico AL30/GD30</div>
+              <div class="pair-sub" id="histSubTitle">Cargando histórico...</div>
+            </div>
+            <div class="mini-kpis" id="histKpis"></div>
+          </div>
+        </div>
 
-    <div class="card span-8">
-      <h3>Notas</h3>
-      <ul id="notes"></ul>
-    </div>
+        <div class="card span-12">
+          <h3>Ratio histórico + Bollinger + Media móvil</h3>
+          <div id="histRatioChart" style="height:460px;"></div>
+        </div>
 
-    <div class="card span-12">
-      <h3>Z-Score histórico</h3>
-      <div id="zscoreChart" style="height:440px;"></div>
-    </div>
+        <div class="card span-12">
+          <h3>Z-Score 20 histórico</h3>
+          <div id="histZChart" style="height:420px;"></div>
+        </div>
 
-    <div class="card span-6">
-      <h3>Oportunidades del par</h3>
-      <div class="log-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Hora</th>
-              <th>Par</th>
-              <th>Operación</th>
-              <th>Z</th>
-              <th>Edge</th>
-              <th>Filtro</th>
-            </tr>
-          </thead>
-          <tbody id="logBody"></tbody>
-        </table>
+        <div class="card span-12">
+          <h3>Tabla histórica</h3>
+          <div class="log-wrap" style="max-height:460px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>AL30</th>
+                  <th>GD30</th>
+                  <th>Ratio</th>
+                  <th>Spread</th>
+                  <th>Z-Score 20</th>
+                </tr>
+              </thead>
+              <tbody id="histTableBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card span-6">
-      <h3>Paper trading del par</h3>
-      <div class="log-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Hora</th>
-              <th>Evento</th>
-              <th>Par</th>
-              <th>Side</th>
-              <th>PnL</th>
-            </tr>
-          </thead>
-          <tbody id="paperBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card span-6">
-      <h3>Alertas del par</h3>
-      <div class="log-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Hora</th>
-              <th>Par</th>
-              <th>Señal</th>
-              <th>Z</th>
-              <th>Canal</th>
-            </tr>
-          </thead>
-          <tbody id="alertsBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card span-6">
-      <h3>Posiciones abiertas del par</h3>
-      <div class="log-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Par</th>
-              <th>Side</th>
-              <th>Entry Z</th>
-              <th>Entry Ratio</th>
-              <th>Notional</th>
-            </tr>
-          </thead>
-          <tbody id="positionsBody"></tbody>
-        </table>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -200,14 +271,23 @@
 let stateCache = null;
 let selectedPoint = null;
 let activePair = null;
+let currentView = 'live';
+let historicalCache = null;
 
 const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v2';
+const ACTIVE_VIEW_KEY = 'tradingdesk_active_view_v1';
 
 function saveActivePair(pair) {
   try { if (pair) localStorage.setItem(ACTIVE_TAB_KEY, pair); } catch (_) {}
 }
 function loadActivePair() {
   try { return localStorage.getItem(ACTIVE_TAB_KEY); } catch (_) { return null; }
+}
+function saveActiveView(view) {
+  try { localStorage.setItem(ACTIVE_VIEW_KEY, view); } catch (_) {}
+}
+function loadActiveView() {
+  try { return localStorage.getItem(ACTIVE_VIEW_KEY) || 'live'; } catch (_) { return 'live'; }
 }
 
 function fmt(n, digits = 4) {
@@ -250,11 +330,9 @@ function getAvailablePairs(s) {
 function getDefaultPair(s) {
   const pairs = getAvailablePairs(s);
   if (!pairs.length) return null;
-
   const saved = loadActivePair();
   if (saved && pairs.includes(saved)) return saved;
   if (activePair && pairs.includes(activePair)) return activePair;
-
   return pairs[0];
 }
 
@@ -269,7 +347,6 @@ function getPaperEventsSource(s) {
     ['trades', s.trades],
     ['events', s.events]
   ];
-
   for (const [name, value] of candidates) {
     if (Array.isArray(value) && value.length) return { name, items: value };
   }
@@ -306,19 +383,13 @@ function resolveEventIndex(item, x) {
 
 function getEventPair(item, keys) {
   if (item.pair && keys.includes(item.pair)) return item.pair;
-
-  const candidates = [
-    item.pair, item.symbol, item.instrument, item.ticker, item.asset, item.series
-  ].filter(Boolean).map(v => String(v));
-
-  for (const c of candidates) {
-    if (keys.includes(c)) return c;
-  }
+  const candidates = [item.pair, item.symbol, item.instrument, item.ticker, item.asset, item.series]
+    .filter(Boolean).map(v => String(v));
+  for (const c of candidates) if (keys.includes(c)) return c;
   for (const c of candidates) {
     const found = keys.find(k => c.includes(k) || k.includes(c));
     if (found) return found;
   }
-
   return item.pair || item.symbol || item.instrument || item.ticker || '-';
 }
 
@@ -349,9 +420,49 @@ function pairFilter(items, pair) {
   });
 }
 
+function rollingMean(values, window) {
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) continue;
+    const slice = values.slice(i - window + 1, i + 1);
+    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
+    out[i] = slice.reduce((a, b) => a + b, 0) / window;
+  }
+  return out;
+}
+
+function rollingStd(values, window) {
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) continue;
+    const slice = values.slice(i - window + 1, i + 1);
+    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
+    const mean = slice.reduce((a, b) => a + b, 0) / window;
+    const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
+    out[i] = Math.sqrt(variance);
+  }
+  return out;
+}
+
+function buildBollinger(values, window, mult) {
+  const ma = rollingMean(values, window);
+  const std = rollingStd(values, window);
+  return {
+    ma,
+    upper: ma.map((m, i) => (m === null || std[i] === null ? null : m + std[i] * mult)),
+    lower: ma.map((m, i) => (m === null || std[i] === null ? null : m - std[i] * mult))
+  };
+}
+
 function renderManualPairsList(s) {
   const el = document.getElementById('manualPairsList');
   el.innerHTML = '';
+
+  if (currentView !== 'live') {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
 
   const manualPairs = s.manual_pairs || [];
   if (!manualPairs.length) {
@@ -381,6 +492,12 @@ function renderManualPairsList(s) {
 
 function renderTabs(s) {
   const tabsEl = document.getElementById('pairTabs');
+  if (currentView !== 'live') {
+    tabsEl.classList.add('hidden');
+    return;
+  }
+  tabsEl.classList.remove('hidden');
+
   const pairs = getAvailablePairs(s);
   activePair = getDefaultPair(s);
   saveActivePair(activePair);
@@ -497,7 +614,7 @@ function buildPaperEventTraces(s, x, paperItems) {
   };
 }
 
-function renderChart(s, paperItems) {
+function renderLiveChart(s, paperItems) {
   const pair = activePair;
   const x = s.series_timestamps || [];
   const y = (s.zscore_history || {})[pair] || [];
@@ -554,7 +671,7 @@ function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
   body.innerHTML = '';
 
   if (!Array.isArray(items) || !items.length) {
-    const colspans = { logBody: 6, paperBody: 5, alertsBody: 5, positionsBody: 5 };
+    const colspans = { logBody: 6, paperBody: 5, alertsBody: 5, positionsBody: 5, histTableBody: 6 };
     body.innerHTML = `<tr class="empty-row"><td colspan="${colspans[id] || 5}">${emptyMessage}</td></tr>`;
     return;
   }
@@ -580,7 +697,7 @@ function attachLogRowHandlers(s) {
       setActiveRow('logBody', tr);
       if (stateCache) {
         const source = getPaperEventsSource(stateCache);
-        renderChart(stateCache, pairFilter(source.items, activePair));
+        renderLiveChart(stateCache, pairFilter(source.items, activePair));
       }
     });
   });
@@ -607,7 +724,7 @@ function attachPaperRowHandlers(s, paperItems) {
       setActiveRow('paperBody', tr);
       if (stateCache) {
         const source = getPaperEventsSource(stateCache);
-        renderChart(stateCache, pairFilter(source.items, activePair));
+        renderLiveChart(stateCache, pairFilter(source.items, activePair));
       }
     });
   });
@@ -651,6 +768,128 @@ function renderPairHeader(s, pair, paperItems) {
   `;
 }
 
+async function loadHistoricalData() {
+  const r = await fetch('/api/history/phase1/al30-gd30?limit=2000');
+  if (!r.ok) throw new Error('No se pudo cargar histórico AL30/GD30');
+  historicalCache = await r.json();
+  return historicalCache;
+}
+
+function renderHistoricalView(hist) {
+  const rows = hist?.rows || [];
+  const x = rows.map(r => r.trade_date);
+  const ratio = rows.map(r => Number(r.ratio));
+  const z = rows.map(r => r.zscore_20 === null ? null : Number(r.zscore_20));
+  const bb = buildBollinger(ratio, 20, 2);
+
+  document.getElementById('histSubTitle').textContent =
+    rows.length ? `Desde ${rows[0].trade_date} hasta ${rows[rows.length - 1].trade_date} | ${rows.length} ruedas` : 'Sin datos históricos';
+
+  const last = rows.length ? rows[rows.length - 1] : null;
+  document.getElementById('histKpis').innerHTML = `
+    <div class="mini-kpi">
+      <div class="label">Último ratio</div>
+      <div class="value">${last ? fmt(last.ratio, 8) : '-'}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Último spread</div>
+      <div class="value">${last ? fmt(last.spread, 4) : '-'}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Último Z-Score 20</div>
+      <div class="value">${last ? fmt(last.zscore_20, 4) : '-'}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Ruedas</div>
+      <div class="value">${rows.length}</div>
+    </div>
+  `;
+
+  Plotly.react(
+    'histRatioChart',
+    [
+      {
+        x, y: ratio, mode: 'lines', type: 'scatter', name: 'Ratio AL30/GD30',
+        line: { width: 3, color: '#60a5fa' }
+      },
+      {
+        x, y: bb.ma, mode: 'lines', type: 'scatter', name: 'MM 20',
+        line: { width: 3, color: '#22c55e' }
+      },
+      {
+        x, y: bb.upper, mode: 'lines', type: 'scatter', name: 'BB Superior',
+        line: { width: 2, color: '#ef4444', dash: 'dash' }
+      },
+      {
+        x, y: bb.lower, mode: 'lines', type: 'scatter', name: 'BB Inferior',
+        line: { width: 2, color: '#f59e0b', dash: 'dash' },
+        fill: 'tonexty',
+        fillcolor: 'rgba(245,158,11,0.15)'
+      }
+    ],
+    {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e5e7eb' },
+      margin:{ t:20, r:20, b:50, l:50 },
+      xaxis:{ title:'Fecha' },
+      yaxis:{ title:'Ratio' },
+      legend:{ orientation:'h' }
+    },
+    { responsive:true, displayModeBar:false }
+  );
+
+  Plotly.react(
+    'histZChart',
+    [
+      {
+        x, y: z, mode: 'lines', type: 'scatter', name: 'Z-Score 20',
+        line: { width: 3, color: '#60a5fa' }
+      }
+    ],
+    {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e5e7eb' },
+      margin:{ t:20, r:20, b:50, l:50 },
+      xaxis:{ title:'Fecha' },
+      yaxis:{ title:'Z-Score 20' },
+      legend:{ orientation:'h' },
+      shapes: [
+        { type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0, line:{ color:'#64748b', width:1, dash:'dot' } },
+        { type:'line', xref:'paper', x0:0, x1:1, y0:2, y1:2, line:{ color:'#7f1d1d', width:1, dash:'dash' } },
+        { type:'line', xref:'paper', x0:0, x1:1, y0:-2, y1:-2, line:{ color:'#7f1d1d', width:1, dash:'dash' } }
+      ]
+    },
+    { responsive:true, displayModeBar:false }
+  );
+
+  renderRows('histTableBody', rows, row => `
+    <td>${row.trade_date}</td>
+    <td>${fmt(row.left_close, 4)}</td>
+    <td>${fmt(row.right_close, 4)}</td>
+    <td>${fmt(row.ratio, 8)}</td>
+    <td>${fmt(row.spread, 4)}</td>
+    <td>${fmt(row.zscore_20, 4)}</td>
+  `, 'Sin histórico cargado');
+}
+
+function switchView(view) {
+  currentView = view;
+  saveActiveView(view);
+
+  document.getElementById('modeLiveBtn').classList.toggle('active', view === 'live');
+  document.getElementById('modeHistBtn').classList.toggle('active', view === 'history');
+
+  document.getElementById('liveView').classList.toggle('hidden', view !== 'live');
+  document.getElementById('historyView').classList.toggle('hidden', view !== 'history');
+  document.getElementById('liveControls').classList.toggle('hidden', view !== 'live');
+
+  if (view === 'history' && historicalCache) {
+    renderHistoricalView(historicalCache);
+  }
+}
+
 function renderAll(s) {
   stateCache = s;
 
@@ -665,48 +904,56 @@ function renderAll(s) {
 
   document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'} | TZ: ${s.timezone || '-'} | Symbols: ${(s.symbols || []).length}`;
   document.getElementById('storageLabel').textContent = `DB: ${s.db_path || '-'}`;
+
   renderManualPairsList(s);
   renderTabs(s);
-  renderPairHeader(s, activePair, filteredPaper);
-  renderRisk(s.risk_report || {});
-  renderNotes(s.notes || []);
-  renderChart(s, filteredPaper);
 
-  renderRows('logBody', filteredLogs, item => `
-    <td>${item.time || '-'}</td>
-    <td>${item.pair || '-'}</td>
-    <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
-    <td>${fmt(item.zscore,4)}</td>
-    <td>${fmt(item.edge_bps,2)}</td>
-    <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
-  `, 'Sin oportunidades para este par');
+  if (currentView === 'live') {
+    renderPairHeader(s, activePair, filteredPaper);
+    renderRisk(s.risk_report || {});
+    renderNotes(s.notes || []);
+    renderLiveChart(s, filteredPaper);
 
-  renderRows('paperBody', filteredPaper, item => `
-    <td>${getEventTime(item)}</td>
-    <td><span class="pill ${paperClass(getEventType(item))}">${getEventType(item)}</span></td>
-    <td>${getEventPair(item, getSeriesKeys(s))}</td>
-    <td>${getEventSide(item)}</td>
-    <td>${fmt(getEventPnl(item),2)}</td>
-  `, 'Sin eventos de paper trading para este par');
+    renderRows('logBody', filteredLogs, item => `
+      <td>${item.time || '-'}</td>
+      <td>${item.pair || '-'}</td>
+      <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
+      <td>${fmt(item.zscore,4)}</td>
+      <td>${fmt(item.edge_bps,2)}</td>
+      <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
+    `, 'Sin oportunidades para este par');
 
-  renderRows('alertsBody', filteredAlerts, item => `
-    <td>${item.time || '-'}</td>
-    <td>${item.pair || '-'}</td>
-    <td>${item.signal || '-'}</td>
-    <td>${fmt(item.zscore,4)}</td>
-    <td>${(item.channels || []).join(', ')}</td>
-  `, 'Sin alertas para este par');
+    renderRows('paperBody', filteredPaper, item => `
+      <td>${getEventTime(item)}</td>
+      <td><span class="pill ${paperClass(getEventType(item))}">${getEventType(item)}</span></td>
+      <td>${getEventPair(item, getSeriesKeys(s))}</td>
+      <td>${getEventSide(item)}</td>
+      <td>${fmt(getEventPnl(item),2)}</td>
+    `, 'Sin eventos de paper trading para este par');
 
-  renderRows('positionsBody', filteredPositions, item => `
-    <td>${item.pair || '-'}</td>
-    <td>${item.side || '-'}</td>
-    <td>${fmt(item.entry_zscore,4)}</td>
-    <td>${fmt(item.entry_ratio,8)}</td>
-    <td>${fmt(item.size_notional,2)}</td>
-  `, 'Sin posiciones abiertas para este par');
+    renderRows('alertsBody', filteredAlerts, item => `
+      <td>${item.time || '-'}</td>
+      <td>${item.pair || '-'}</td>
+      <td>${item.signal || '-'}</td>
+      <td>${fmt(item.zscore,4)}</td>
+      <td>${(item.channels || []).join(', ')}</td>
+    `, 'Sin alertas para este par');
 
-  attachLogRowHandlers(s);
-  attachPaperRowHandlers(s, filteredPaper);
+    renderRows('positionsBody', filteredPositions, item => `
+      <td>${item.pair || '-'}</td>
+      <td>${item.side || '-'}</td>
+      <td>${fmt(item.entry_zscore,4)}</td>
+      <td>${fmt(item.entry_ratio,8)}</td>
+      <td>${fmt(item.size_notional,2)}</td>
+    `, 'Sin posiciones abiertas para este par');
+
+    attachLogRowHandlers(s);
+    attachPaperRowHandlers(s, filteredPaper);
+  }
+
+  if (currentView === 'history' && historicalCache) {
+    renderHistoricalView(historicalCache);
+  }
 }
 
 async function loadState() {
@@ -769,6 +1016,12 @@ async function deletePair(left, right) {
 async function refresh() {
   try {
     const data = await loadState();
+    stateCache = data;
+    if (!historicalCache) {
+      try {
+        historicalCache = await loadHistoricalData();
+      } catch (_) {}
+    }
     renderAll(data);
   } catch (e) {
     console.error(e);
@@ -785,8 +1038,33 @@ document.getElementById('rightTickerInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') addPair();
 });
 
+document.getElementById('modeLiveBtn').addEventListener('click', () => {
+  switchView('live');
+  if (stateCache) renderAll(stateCache);
+});
+
+document.getElementById('modeHistBtn').addEventListener('click', async () => {
+  switchView('history');
+  if (!historicalCache) {
+    try {
+      historicalCache = await loadHistoricalData();
+    } catch (e) {
+      document.getElementById('debugBox').textContent = 'No se pudo cargar histórico AL30/GD30';
+      return;
+    }
+  }
+  renderHistoricalView(historicalCache);
+});
+
+currentView = loadActiveView();
+switchView(currentView);
+
 refresh();
-setInterval(refresh, 2000);
+setInterval(async () => {
+  if (currentView === 'live') {
+    await refresh();
+  }
+}, 2000);
 </script>
 </body>
 </html>
