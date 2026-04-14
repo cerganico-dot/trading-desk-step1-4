@@ -385,28 +385,56 @@ class HistoricalPhase1Service:
             "count": len(out),
         }
 
-    def get_pair_history(self, limit: int = 600) -> dict[str, Any]:
-        self.ensure_tables()
+def get_pair_history(self, limit=2000):
+    conn = self._get_conn()
+    cur = conn.cursor()
 
-        with self._conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT pair_name, trade_date, left_symbol, right_symbol,
-                       left_close, right_close, ratio, spread, zscore_20
-                FROM historical_pair_metrics
-                WHERE pair_name = ?
-                ORDER BY trade_date DESC
-                LIMIT ?
-                """,
-                (self.PAIR_NAME, limit),
-            ).fetchall()
+    rows = cur.execute("""
+        SELECT 
+            l.trade_date,
+            l.close as left_close,
+            r.close as right_close,
+            (l.close / r.close) as ratio,
+            (l.close - r.close) as spread
+        FROM daily_prices l
+        JOIN daily_prices r 
+            ON l.trade_date = r.trade_date
+        WHERE l.symbol = 'AL30'
+          AND r.symbol = 'GD30'
+        ORDER BY l.trade_date ASC
+        LIMIT ?
+    """, (limit,)).fetchall()
 
-        out = [dict(r) for r in rows]
-        out.reverse()
+    result = []
+    ratios = []
 
-        return {
-            "ok": True,
-            "pair_name": self.PAIR_NAME,
-            "rows": out,
-            "count": len(out),
-        }
+    for row in rows:
+        ratio = row["ratio"]
+        ratios.append(ratio)
+
+        # zscore rolling 20
+        if len(ratios) >= 20:
+            window = ratios[-20:]
+            mean = sum(window) / 20
+            std = (sum((x - mean) ** 2 for x in window) / 20) ** 0.5
+            z = (ratio - mean) / std if std != 0 else 0
+        else:
+            z = None
+
+        result.append({
+            "trade_date": row["trade_date"],
+            "left_close": row["left_close"],
+            "right_close": row["right_close"],
+            "ratio": ratio,
+            "spread": row["spread"],
+            "zscore_20": z
+        })
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "rows": result,
+        "count": len(result)
+    }
+    
