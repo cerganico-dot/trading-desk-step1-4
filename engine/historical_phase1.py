@@ -38,6 +38,10 @@ class HistoricalPhase1Service:
         conn.row_factory = sqlite3.Row
         return conn
 
+    # compatibilidad
+    def _get_conn(self) -> sqlite3.Connection:
+        return self._conn()
+
     def ensure_tables(self) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -98,7 +102,6 @@ class HistoricalPhase1Service:
 
     def _parse_bars_from_html(self, symbol: str, html: str) -> list[DailyBar]:
         text = self._extract_text(html)
-
         pattern = re.compile(
             r"(\d{2}/\d{2}/\d{4})\s+"
             r"([0-9,]+\.\d{2})\s+"
@@ -113,7 +116,7 @@ class HistoricalPhase1Service:
         rows: dict[str, DailyBar] = {}
         for match in pattern.finditer(text):
             trade_date = self._to_iso_date(match.group(1))
-            bar = DailyBar(
+            rows[trade_date] = DailyBar(
                 symbol=symbol,
                 trade_date=trade_date,
                 open_price=self._to_float(match.group(2)),
@@ -124,14 +127,12 @@ class HistoricalPhase1Service:
                 amount=self._to_float(match.group(7)),
                 nominal_volume=self._to_float(match.group(8)),
             )
-            rows[trade_date] = bar
 
         return sorted(rows.values(), key=lambda x: x.trade_date)
 
     def fetch_public_history(self, symbol: str) -> list[DailyBar]:
-        url = self._historical_url(symbol)
         response = requests.get(
-            url,
+            self._historical_url(symbol),
             timeout=30,
             headers={
                 "User-Agent": "Mozilla/5.0",
@@ -139,7 +140,6 @@ class HistoricalPhase1Service:
             },
         )
         response.raise_for_status()
-
         bars = self._parse_bars_from_html(symbol=symbol, html=response.text)
         if not bars:
             raise RuntimeError(f"No se pudieron parsear datos históricos para {symbol}")
@@ -233,6 +233,7 @@ class HistoricalPhase1Service:
                     "right_close": right_close,
                     "ratio": left_close / right_close,
                     "spread": left_close - right_close,
+                    "zscore_20": None,
                 }
             )
 
@@ -246,7 +247,6 @@ class HistoricalPhase1Service:
             mean = sum(window) / 20.0
             variance = sum((x - mean) ** 2 for x in window) / 20.0
             std = math.sqrt(variance)
-
             row["zscore_20"] = 0.0 if std == 0 else (row["ratio"] - mean) / std
 
         return aligned
@@ -293,7 +293,6 @@ class HistoricalPhase1Service:
 
     def bootstrap_phase1(self, years: int = 2) -> dict[str, Any]:
         self.ensure_tables()
-
         cutoff = (date.today() - timedelta(days=365 * years + 15)).isoformat()
 
         summary: dict[str, Any] = {
@@ -385,56 +384,51 @@ class HistoricalPhase1Service:
             "count": len(out),
         }
 
-def get_pair_history(self, limit=2000):
-    conn = self._get_conn()
-    cur = conn.cursor()
+    def get_pair_history(self, limit: int = 600) -> dict[str, Any]:
+        self.ensure_tables()
 
-    rows = cur.execute("""
-        SELECT 
-            l.trade_date,
-            l.close as left_close,
-            r.close as right_close,
-            (l.close / r.close) as ratio,
-            (l.close - r.close) as spread
-        FROM daily_prices l
-        JOIN daily_prices r 
-            ON l.trade_date = r.trade_date
-        WHERE l.symbol = 'AL30'
-          AND r.symbol = 'GD30'
-        ORDER BY l.trade_date ASC
-        LIMIT ?
-    """, (limit,)).fetchall()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT pair_name, trade_date, left_symbol, right_symbol,
+                       left_close, right_close, ratio, spread, zscore_20
+                FROM historical_pair_metrics
+                WHERE pair_name = ?
+                ORDER BY trade_date DESC
+                LIMIT ?
+                """,
+                (self.PAIR_NAME, limit),
+            ).fetchall()
 
-    result = []
-    ratios = []
+        out = [dict(r) for r in rows]
+        out.reverse()
 
-    for row in rows:
-        ratio = row["ratio"]
-        ratios.append(ratio)
+        if out:
+            return {
+                "ok": True,
+                "pair_name": self.PAIR_NAME,
+                "rows": out,
+                "count": len(out),
+            }
 
-        # zscore rolling 20
-        if len(ratios) >= 20:
-            window = ratios[-20:]
-            mean = sum(window) / 20
-            std = (sum((x - mean) ** 2 for x in window) / 20) ** 0.5
-            z = (ratio - mean) / std if std != 0 else 0
-        else:
-            z = None
+        # fallback: reconstruye desde barras si la tabla derivada está vacía
+        left_rows = self._load_bars("AL30")
+        right_rows = self._load_bars("GD30")
+        rebuilt = self._compute_pair_metrics(left_rows, right_rows)
 
-        result.append({
-            "trade_date": row["trade_date"],
-            "left_close": row["left_close"],
-            "right_close": row["right_close"],
-            "ratio": ratio,
-            "spread": row["spread"],
-            "zscore_20": z
-        })
+        if rebuilt:
+            self.upsert_pair_metrics(rebuilt)
+            rebuilt = rebuilt[-limit:]
+            return {
+                "ok": True,
+                "pair_name": self.PAIR_NAME,
+                "rows": rebuilt,
+                "count": len(rebuilt),
+            }
 
-    conn.close()
-
-    return {
-        "ok": True,
-        "rows": result,
-        "count": len(result)
-    }
-    
+        return {
+            "ok": True,
+            "pair_name": self.PAIR_NAME,
+            "rows": [],
+            "count": 0,
+        }
