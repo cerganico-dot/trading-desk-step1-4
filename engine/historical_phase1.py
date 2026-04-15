@@ -38,10 +38,6 @@ class HistoricalPhase1Service:
         conn.row_factory = sqlite3.Row
         return conn
 
-    # compatibilidad
-    def _get_conn(self) -> sqlite3.Connection:
-        return self._conn()
-
     def ensure_tables(self) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -411,7 +407,6 @@ class HistoricalPhase1Service:
                 "count": len(out),
             }
 
-        # fallback: reconstruye desde barras si la tabla derivada está vacía
         left_rows = self._load_bars("AL30")
         right_rows = self._load_bars("GD30")
         rebuilt = self._compute_pair_metrics(left_rows, right_rows)
