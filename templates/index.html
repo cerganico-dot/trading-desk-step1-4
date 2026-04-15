@@ -10,287 +10,218 @@
 body { background:#0f172a; color:#e2e8f0; font-family:Arial; margin:0; }
 .wrap { padding:20px; max-width:1400px; margin:auto; }
 .card { background:#111827; padding:16px; border-radius:12px; margin-bottom:16px; }
-button { padding:10px; border-radius:8px; border:none; cursor:pointer; margin-right:8px; }
+button { padding:10px; border-radius:8px; border:none; cursor:pointer; }
 .mode-btn { background:#1f2937; color:#fff; }
 .mode-btn.active { background:#2563eb; }
 .table { width:100%; border-collapse:collapse; }
-.table th, .table td { padding:6px; border-bottom:1px solid #333; text-align:left; }
-#debug { margin: 8px 0 16px 0; color:#fca5a5; white-space:pre-wrap; }
-.kpis { line-height: 1.8; }
-.controls-row { margin-bottom: 16px; }
+.table th, .table td { padding:6px; border-bottom:1px solid #333; }
 </style>
 </head>
 
 <body>
 <div class="wrap">
 
-<h1>Trading Desk - Histórico Estable</h1>
+<h1>Trading Desk</h1>
 <div id="debug"></div>
 
-<div class="controls-row">
-  <button class="mode-btn active" onclick="setView('live')" id="btnLive">LIVE</button>
-  <button class="mode-btn" onclick="setView('history')" id="btnHist">HISTORICO</button>
+<div>
+<button class="mode-btn active" onclick="setView('live')" id="btnLive">LIVE</button>
+<button class="mode-btn" onclick="setView('backtest')" id="btnBT">BACKTEST</button>
 </div>
 
 <div id="liveView">
-  <div class="card">
-    <h3>ZScore</h3>
-    <div id="liveChart" style="height:420px;"></div>
-  </div>
-
-  <div class="card">
-    <h3>Estado</h3>
-    <div id="liveInfo"></div>
-  </div>
-
-  <div class="card">
-    <h3>Oportunidades</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Hora</th>
-          <th>Par</th>
-          <th>Operación</th>
-          <th>Z</th>
-          <th>Edge</th>
-          <th>Filtro</th>
-        </tr>
-      </thead>
-      <tbody id="liveLog"></tbody>
-    </table>
-  </div>
+<div class="card">
+<h3>ZScore</h3>
+<div id="liveChart"></div>
+</div>
 </div>
 
-<div id="historyView" style="display:none;">
-  <div class="card">
-    <h3>Histórico AL30/GD30</h3>
-    <div id="histInfo" class="kpis"></div>
-  </div>
+<div id="backtestView" style="display:none">
 
-  <div class="card">
-    <h3>Ratio + Media móvil + Bollinger</h3>
-    <div id="histRatioChart" style="height:420px;"></div>
-  </div>
+<div class="card">
+<h3>Parámetros</h3>
 
-  <div class="card">
-    <h3>Z-Score 20</h3>
-    <div id="histZChart" style="height:420px;"></div>
-  </div>
+Entry Z:
+<select id="entryZ">
+<option>1.5</option>
+<option selected>2.0</option>
+<option>2.5</option>
+</select>
 
-  <div class="card">
-    <h3>Tabla histórica</h3>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Fecha</th>
-          <th>AL30</th>
-          <th>GD30</th>
-          <th>Ratio</th>
-          <th>Spread</th>
-          <th>Z-Score 20</th>
-        </tr>
-      </thead>
-      <tbody id="histTable"></tbody>
-    </table>
-  </div>
+Exit Z:
+<select id="exitZ">
+<option selected>0</option>
+<option>0.5</option>
+</select>
+
+Capital:
+<input id="capital" value="1000000"/>
+
+Cost:
+<input id="cost" value="0.003"/>
+
+<button onclick="runBacktest()">RUN<button onclick="runOptimizer()">OPTIMIZER</button>
+</div>
+<div class="card">
+<h3>Optimizer</h3>
+<div id="optimizer"></div>
+</div>
+
+<div class="card">
+<h3>Equity</h3>
+<div id="equityChart"></div>
+</div>
+
+<div class="card">
+<h3>Trades</h3>
+<table class="table">
+<thead>
+<tr>
+<th>Entry</th>
+<th>Exit</th>
+<th>Side</th>
+<th>PnL</th>
+</tr>
+</thead>
+<tbody id="trades"></tbody>
+</table>
 </div>
 
 </div>
+
+</div>
+
 
 <script>
-let currentView = 'live';
+let view = 'live'
 
 function setView(v){
-  currentView = v;
-  document.getElementById('liveView').style.display = v === 'live' ? 'block' : 'none';
-  document.getElementById('historyView').style.display = v === 'history' ? 'block' : 'none';
-  document.getElementById('btnLive').classList.toggle('active', v === 'live');
-  document.getElementById('btnHist').classList.toggle('active', v === 'history');
-
-  if (v === 'history') {
-    loadHistory();
-  }
-}
-
-function fmt(n, d=4){
-  if(n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
-  return Number(n).toLocaleString('es-AR', { maximumFractionDigits:d });
-}
-
-function rollingMean(values, window) {
-  const out = new Array(values.length).fill(null);
-  for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1);
-    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
-    out[i] = slice.reduce((a,b)=>a+b,0) / window;
-  }
-  return out;
-}
-
-function rollingStd(values, window) {
-  const out = new Array(values.length).fill(null);
-  for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1);
-    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
-    const mean = slice.reduce((a,b)=>a+b,0) / window;
-    const variance = slice.reduce((a,b)=>a + Math.pow(b-mean,2),0) / window;
-    out[i] = Math.sqrt(variance);
-  }
-  return out;
-}
-
-function buildBollinger(values, window, mult) {
-  const ma = rollingMean(values, window);
-  const std = rollingStd(values, window);
-  return {
-    ma,
-    upper: ma.map((m,i)=> (m===null || std[i]===null ? null : m + std[i]*mult)),
-    lower: ma.map((m,i)=> (m===null || std[i]===null ? null : m - std[i]*mult))
-  };
+view=v
+document.getElementById('liveView').style.display = v==='live'?'block':'none'
+document.getElementById('backtestView').style.display = v==='backtest'?'block':'none'
 }
 
 async function loadLive(){
-  try {
-    const r = await fetch('/api/state');
-    const j = await r.json();
-
-    const keys = Object.keys(j.zscore_history || {});
-    if (!keys.length) {
-      document.getElementById('debug').innerText = 'Sin zscore_history en /api/state';
-      return;
-    }
-
-    const pair = keys[0];
-    const y = j.zscore_history[pair] || [];
-    const x = j.series_timestamps || [];
-
-    Plotly.newPlot('liveChart', [{
-      x, y, type:'scatter', mode:'lines+markers', name:pair
-    }], {
-      paper_bgcolor:'#111827',
-      plot_bgcolor:'#111827',
-      font:{ color:'#e2e8f0' },
-      margin:{ t:20, r:20, b:40, l:50 }
-    }, {responsive:true});
-
-    document.getElementById('liveInfo').innerHTML = `
-      <b>Modo:</b> ${j.mode || '-'}<br>
-      <b>Timezone:</b> ${j.timezone || '-'}<br>
-      <b>DB:</b> ${j.db_path || '-'}<br>
-      <b>Pares:</b> ${(j.pairs || []).join(', ')}
-    `;
-
-    renderLiveLog(j.opportunity_log || []);
-    document.getElementById('debug').innerText = '';
-  } catch (e) {
-    document.getElementById('debug').innerText = 'Error cargando LIVE';
-  }
+const r = await fetch('/api/state')
+const j = await r.json()
+const pair = Object.keys(j.zscore_history)[0]
+const y = j.zscore_history[pair]
+const x = j.series_timestamps
+Plotly.newPlot('liveChart',[{x,y,type:'scatter'}])
 }
 
-function renderLiveLog(rows){
-  const tbody = document.getElementById('liveLog');
-  tbody.innerHTML = '';
+async function runBacktest(){
 
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="6">Sin datos</td></tr>`;
-    return;
-  }
+const entry = document.getElementById('entryZ').value
+const exit = document.getElementById('exitZ').value
+const cap = document.getElementById('capital').value
+const cost = document.getElementById('cost').value
 
-  rows.slice().reverse().forEach(item => {
-    tbody.innerHTML += `
-      <tr>
-        <td>${item.time || '-'}</td>
-        <td>${item.pair || '-'}</td>
-        <td>${item.signal || '-'}</td>
-        <td>${fmt(item.zscore,4)}</td>
-        <td>${fmt(item.edge_bps,2)}</td>
-        <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
-      </tr>
-    `;
-  });
+const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`
+
+const r = await fetch(url)
+const j = await r.json()
+
+renderMetrics(j.metrics)
+renderEquity(j.equity_curve)
+renderTrades(j.trades)
+
 }
 
-async function loadHistory(){
-  try {
-    document.getElementById('debug').innerText = 'Cargando histórico...';
-
-    const r = await fetch('/api/history/phase1/al30-gd30?limit=2000');
-    const j = await r.json();
-
-    if (!r.ok || !j.ok) {
-      document.getElementById('debug').innerText = 'Error cargando histórico';
-      return;
-    }
-
-    const rows = j.rows || [];
-    if (!rows.length) {
-      document.getElementById('debug').innerText = 'Histórico cargado: 0 filas';
-      document.getElementById('histInfo').innerHTML = 'Sin datos históricos';
-      document.getElementById('histTable').innerHTML = '<tr><td colspan="6">Sin datos</td></tr>';
-      return;
-    }
-
-    const x = rows.map(r => r.trade_date);
-    const ratio = rows.map(r => Number(r.ratio));
-    const z = rows.map(r => r.zscore_20 === null ? null : Number(r.zscore_20));
-    const bb = buildBollinger(ratio, 20, 2);
-
-    const last = rows[rows.length - 1];
-
-    document.getElementById('histInfo').innerHTML = `
-      <b>Desde:</b> ${rows[0].trade_date}<br>
-      <b>Hasta:</b> ${last.trade_date}<br>
-      <b>Ruedas:</b> ${rows.length}<br>
-      <b>Último ratio:</b> ${fmt(last.ratio, 8)}<br>
-      <b>Último spread:</b> ${fmt(last.spread, 4)}<br>
-      <b>Último z-score:</b> ${fmt(last.zscore_20, 4)}
-    `;
-
-    Plotly.newPlot('histRatioChart', [
-      { x, y: ratio, mode:'lines', type:'scatter', name:'Ratio AL30/GD30' },
-      { x, y: bb.ma, mode:'lines', type:'scatter', name:'MM 20' },
-      { x, y: bb.upper, mode:'lines', type:'scatter', name:'BB Superior' },
-      { x, y: bb.lower, mode:'lines', type:'scatter', name:'BB Inferior', fill:'tonexty' }
-    ], {
-      paper_bgcolor:'#111827',
-      plot_bgcolor:'#111827',
-      font:{ color:'#e2e8f0' },
-      margin:{ t:20, r:20, b:40, l:50 }
-    }, {responsive:true});
-
-    Plotly.newPlot('histZChart', [
-      { x, y: z, mode:'lines', type:'scatter', name:'Z-Score 20' }
-    ], {
-      paper_bgcolor:'#111827',
-      plot_bgcolor:'#111827',
-      font:{ color:'#e2e8f0' },
-      margin:{ t:20, r:20, b:40, l:50 }
-    }, {responsive:true});
-
-    const tbody = document.getElementById('histTable');
-    tbody.innerHTML = '';
-    rows.slice().reverse().forEach(row => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${row.trade_date}</td>
-          <td>${fmt(row.left_close, 4)}</td>
-          <td>${fmt(row.right_close, 4)}</td>
-          <td>${fmt(row.ratio, 8)}</td>
-          <td>${fmt(row.spread, 4)}</td>
-          <td>${fmt(row.zscore_20, 4)}</td>
-        </tr>
-      `;
-    });
-
-    document.getElementById('debug').innerText = `Histórico cargado: ${rows.length} filas`;
-  } catch (e) {
-    document.getElementById('debug').innerText = 'Error cargando histórico';
-  }
+function renderMetrics(m){
+document.getElementById('metrics').innerHTML = `
+PnL: ${m.total_pnl}<br>
+Return: ${m.total_return_pct}%<br>
+WinRate: ${m.win_rate}<br>
+PF: ${m.profit_factor}<br>
+DD: ${m.max_drawdown}
+`
 }
 
-loadLive();
+function renderEquity(eq){
+Plotly.newPlot('equityChart',[{
+x: eq.map(e=>e.date),
+y: eq.map(e=>e.equity),
+type:'scatter'
+}])
+}
+
+function renderTrades(tr){
+const tbody = document.getElementById('trades')
+tbody.innerHTML=''
+tr.forEach(t=>{
+tbody.innerHTML += `
+<tr>
+<td>${t.entry_date}</td>
+<td>${t.exit_date}</td>
+<td>${t.side}</td>
+<td>${t.pnl_money}</td>
+</tr>`
+})
+}
+
+async function runOptimizer(){
+
+const cap = document.getElementById('capital').value
+const cost = document.getElementById('cost').value
+
+let results = []
+
+for(let entry of [1.5,2,2.5,3]){
+for(let exit of [0,0.5,1]){
+
+const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`
+const r = await fetch(url)
+const j = await r.json()
+
+const m = j.metrics
+
+const score = m.profit_factor / (1 + Math.abs(m.max_drawdown))
+
+results.push({
+entry, exit,
+pnl: m.total_pnl,
+pf: m.profit_factor,
+dd: m.max_drawdown,
+wr: m.win_rate,
+score
+})
+
+}
+}
+
+results.sort((a,b)=>b.score-a.score)
+
+renderOptimizer(results)
+
+}
+
+function renderOptimizer(res){
+
+let html = `<table class="table"><tr>
+<th>Entry</th><th>Exit</th><th>Score</th><th>PF</th><th>DD</th><th>WR</th><th>PnL</th>
+</tr>`
+
+res.forEach(r=>{
+html += `<tr>
+<td>${r.entry}</td>
+<td>${r.exit}</td>
+<td>${r.score.toFixed(2)}</td>
+<td>${r.pf.toFixed(2)}</td>
+<td>${r.dd.toFixed(2)}</td>
+<td>${r.wr.toFixed(2)}</td>
+<td>${r.pnl.toFixed(0)}</td>
+</tr>`
+})
+
+html += `</table>`
+
+document.getElementById('optimizer').innerHTML = html
+
+}
+
+loadLive()
+
 </script>
 
 </body>
