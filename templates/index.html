@@ -1,773 +1,228 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ARG Trading Desk</title>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-  <style>
-    body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
-    .wrap { max-width: 1560px; margin: 0 auto; padding: 20px; }
-    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
-    .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
-    .span-12 { grid-column: span 12; }
-    .span-8 { grid-column: span 8; }
-    .span-6 { grid-column: span 6; }
-    .span-4 { grid-column: span 4; }
-    .hidden { display:none; }
-    .muted { color:#94a3b8; font-size:12px; }
-    .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
-    .ok { color:#86efac; font-size:12px; margin-top:8px; }
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Trading Desk</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
-    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
-    .kv div:nth-child(odd) { color:#93c5fd; }
-
-    .log-wrap { max-height: 360px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
-    table { width:100%; border-collapse: collapse; }
-    th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; white-space: nowrap; }
-    th { color:#93c5fd; position: sticky; top: 0; background:#111827; z-index: 1; }
-    .empty-row td { color:#94a3b8; text-align:center; padding:18px 10px; }
-
-    .pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; }
-    .buy { background:#052e16; color:#86efac; }
-    .sell { background:#450a0a; color:#fca5a5; }
-    .none { background:#1f2937; color:#cbd5e1; }
-
-    .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-    .tab-btn, .mode-btn, .btn {
-      border:1px solid #334155; background:#0b1220; color:#cbd5e1;
-      padding:10px 14px; border-radius:10px; cursor:pointer; font-size:13px;
-    }
-    .tab-btn.active, .mode-btn.active, .btn.primary {
-      background:#2563eb; color:#fff; border-color:#2563eb;
-    }
-
-    .top-mode-tabs { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
-
-    .pair-head {
-      display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;
-    }
-    .pair-title { font-size:20px; font-weight:700; }
-    .pair-sub { color:#94a3b8; font-size:12px; }
-
-    .mini-kpis { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
-    .mini-kpi {
-      background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:10px 12px; min-width:140px;
-    }
-    .mini-kpi .label { color:#93c5fd; font-size:12px; }
-    .mini-kpi .value { font-size:16px; margin-top:4px; }
-
-    .pair-form { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; }
-    .pair-form input, .pair-form select {
-      background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:10px;
-      padding:10px 12px; min-width:140px;
-    }
-
-    .chip-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-    .chip {
-      display:flex; align-items:center; gap:8px; padding:8px 10px;
-      border:1px solid #334155; border-radius:999px; background:#0b1220; font-size:12px;
-    }
-    .chip button {
-      background:#450a0a; color:#fca5a5; border:1px solid #7f1d1d;
-      border-radius:999px; cursor:pointer; padding:2px 8px;
-    }
-  </style>
+<style>
+body { background:#0f172a; color:#e2e8f0; font-family:Arial; margin:0; }
+.wrap { padding:20px; max-width:1400px; margin:auto; }
+.card { background:#111827; padding:16px; border-radius:12px; margin-bottom:16px; }
+button { padding:10px; border-radius:8px; border:none; cursor:pointer; }
+.mode-btn { background:#1f2937; color:#fff; }
+.mode-btn.active { background:#2563eb; }
+.table { width:100%; border-collapse:collapse; }
+.table th, .table td { padding:6px; border-bottom:1px solid #333; }
+</style>
 </head>
+
 <body>
 <div class="wrap">
-  <div class="grid">
-    <div class="card span-12">
-      <h1>ARG Trading Desk - UI HIST V1</h1>
-      <div class="muted" id="modeLabel">Cargando...</div>
-      <div class="ok" id="storageLabel"></div>
-      <div class="warn" id="debugBox"></div>
 
-      <div class="pair-form" id="liveControls">
-        <input id="leftTickerInput" placeholder="Ticker izquierdo" />
-        <input id="rightTickerInput" placeholder="Ticker derecho" />
-        <button class="btn primary" id="addPairBtn" type="button">Agregar par</button>
-        <button class="btn" id="refreshBtn" type="button">Refrescar</button>
-      </div>
+<h1>Trading Desk</h1>
+<div id="debug"></div>
 
-      <div class="top-mode-tabs">
-        <button class="mode-btn active" id="modeLiveBtn" type="button">Desk Live</button>
-        <button class="mode-btn" id="modeHistBtn" type="button">Histórico AL30/GD30</button>
-        <button class="mode-btn" id="modeBacktestBtn" type="button">Backtest AL30/GD30</button>
-      </div>
-
-      <div class="chip-list" id="manualPairsList"></div>
-      <div class="tabs" id="pairTabs"></div>
-    </div>
-
-    <div id="liveView" class="span-12">
-      <div class="grid">
-        <div class="card span-12">
-          <div class="pair-head">
-            <div>
-              <div class="pair-title" id="pairTitle">Par</div>
-              <div class="pair-sub" id="pairSubtitle">Detalle del arbitraje</div>
-            </div>
-            <div class="mini-kpis" id="pairKpis"></div>
-          </div>
-        </div>
-
-        <div class="card span-4">
-          <h3>Riesgo</h3>
-          <div id="riskBox" class="kv"></div>
-        </div>
-
-        <div class="card span-8">
-          <h3>Notas</h3>
-          <ul id="notes"></ul>
-        </div>
-
-        <div class="card span-12">
-          <h3>Z-Score histórico</h3>
-          <div id="zscoreChart" style="height:440px;"></div>
-        </div>
-
-        <div class="card span-6">
-          <h3>Oportunidades del par</h3>
-          <div class="log-wrap">
-            <table>
-              <thead><tr><th>Hora</th><th>Par</th><th>Operación</th><th>Z</th><th>Edge</th><th>Filtro</th></tr></thead>
-              <tbody id="logBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card span-6">
-          <h3>Paper trading del par</h3>
-          <div class="log-wrap">
-            <table>
-              <thead><tr><th>Hora</th><th>Evento</th><th>Par</th><th>Side</th><th>PnL</th></tr></thead>
-              <tbody id="paperBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card span-6">
-          <h3>Alertas del par</h3>
-          <div class="log-wrap">
-            <table>
-              <thead><tr><th>Hora</th><th>Par</th><th>Señal</th><th>Z</th><th>Canal</th></tr></thead>
-              <tbody id="alertsBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card span-6">
-          <h3>Posiciones abiertas del par</h3>
-          <div class="log-wrap">
-            <table>
-              <thead><tr><th>Par</th><th>Side</th><th>Entry Z</th><th>Entry Ratio</th><th>Notional</th></tr></thead>
-              <tbody id="positionsBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="historyView" class="span-12 hidden">
-      <div class="grid">
-        <div class="card span-12">
-          <div class="pair-head">
-            <div>
-              <div class="pair-title">Histórico AL30/GD30</div>
-              <div class="pair-sub" id="histSubTitle">Cargando histórico...</div>
-            </div>
-            <div class="mini-kpis" id="histKpis"></div>
-          </div>
-        </div>
-
-        <div class="card span-12">
-          <h3>Ratio histórico + Bollinger + Media móvil</h3>
-          <div id="histRatioChart" style="height:460px;"></div>
-        </div>
-
-        <div class="card span-12">
-          <h3>Z-Score 20 histórico</h3>
-          <div id="histZChart" style="height:420px;"></div>
-        </div>
-
-        <div class="card span-12">
-          <h3>Tabla histórica</h3>
-          <div class="log-wrap" style="max-height:460px;">
-            <table>
-              <thead><tr><th>Fecha</th><th>AL30</th><th>GD30</th><th>Ratio</th><th>Spread</th><th>Z-Score 20</th></tr></thead>
-              <tbody id="histTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="backtestView" class="span-12 hidden">
-      <div class="grid">
-        <div class="card span-12">
-          <div class="pair-head">
-            <div>
-              <div class="pair-title">Backtest AL30/GD30</div>
-              <div class="pair-sub" id="btSubTitle">Backtest histórico con optimizer</div>
-            </div>
-            <div class="mini-kpis" id="btKpis"></div>
-          </div>
-        </div>
-
-        <div class="card span-12">
-          <div class="pair-form">
-            <select id="btEntryZ">
-              <option value="1.5">Entry Z 1.5</option>
-              <option value="2.0" selected>Entry Z 2.0</option>
-              <option value="2.5">Entry Z 2.5</option>
-              <option value="3.0">Entry Z 3.0</option>
-            </select>
-            <select id="btExitZ">
-              <option value="0.0" selected>Exit Z 0.0</option>
-              <option value="0.5">Exit Z 0.5</option>
-              <option value="1.0">Exit Z 1.0</option>
-            </select>
-            <input id="btCapital" type="number" value="1000000" step="100000" />
-            <input id="btCost" type="number" value="0.003" step="0.001" />
-            <button class="btn primary" id="runBacktestBtn" type="button">Correr backtest</button>
-            <button class="btn" id="reloadOptimizerBtn" type="button">Refrescar optimizer</button>
-          </div>
-        </div>
-
-        <div class="card span-12">
-          <h3>Equity curve</h3>
-          <div id="btEquityChart" style="height:440px;"></div>
-        </div>
-
-        <div class="card span-12">
-          <h3>Trades del backtest</h3>
-          <div class="log-wrap" style="max-height:420px;">
-            <table>
-              <thead><tr><th>Entry</th><th>Exit</th><th>Side</th><th>Entry Z</th><th>Exit Z</th><th>Entry Ratio</th><th>Exit Ratio</th><th>PnL Ratio</th><th>PnL $</th></tr></thead>
-              <tbody id="btTradesBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card span-12">
-          <h3>Optimizer</h3>
-          <div class="log-wrap" style="max-height:420px;">
-            <table>
-              <thead><tr><th>Entry Z</th><th>Exit Z</th><th>PnL Total</th><th>Retorno %</th><th>Profit Factor</th><th>Win Rate</th><th>Max DD</th><th>Trades</th><th>Avg Trade</th></tr></thead>
-              <tbody id="btOptimizeBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div>
+<div>
+<button class="mode-btn active" onclick="setView('live')" id="btnLive">LIVE</button>
+<button class="mode-btn" onclick="setView('backtest')" id="btnBT">BACKTEST</button>
 </div>
 
+<div id="liveView">
+<div class="card">
+<h3>ZScore</h3>
+<div id="liveChart"></div>
+</div>
+</div>
+
+<div id="backtestView" style="display:none">
+
+<div class="card">
+<h3>Parámetros</h3>
+
+Entry Z:
+<select id="entryZ">
+<option>1.5</option>
+<option selected>2.0</option>
+<option>2.5</option>
+</select>
+
+Exit Z:
+<select id="exitZ">
+<option selected>0</option>
+<option>0.5</option>
+</select>
+
+Capital:
+<input id="capital" value="1000000"/>
+
+Cost:
+<input id="cost" value="0.003"/>
+
+<button onclick="runBacktest()">RUN<button onclick="runOptimizer()">OPTIMIZER</button>
+</div>
+<div class="card">
+<h3>Optimizer</h3>
+<div id="optimizer"></div>
+</div>
+
+<div class="card">
+<h3>Equity</h3>
+<div id="equityChart"></div>
+</div>
+
+<div class="card">
+<h3>Trades</h3>
+<table class="table">
+<thead>
+<tr>
+<th>Entry</th>
+<th>Exit</th>
+<th>Side</th>
+<th>PnL</th>
+</tr>
+</thead>
+<tbody id="trades"></tbody>
+</table>
+</div>
+
+</div>
+
+</div>
+
+
 <script>
-let stateCache = null;
-let activePair = null;
-let currentView = 'live';
-let historicalCache = null;
-let backtestCache = null;
-let optimizerCache = null;
+let view = 'live'
 
-const ACTIVE_TAB_KEY = 'td_active_pair_v4';
-const ACTIVE_VIEW_KEY = 'td_active_view_v4';
-
-function saveLS(k, v){ try{ localStorage.setItem(k, v); } catch(e){} }
-function loadLS(k, d){ try{ return localStorage.getItem(k) || d; } catch(e){ return d; } }
-
-function setDebug(msg){ document.getElementById('debugBox').textContent = msg || ''; }
-
-function fmt(n, digits = 4) {
-  if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
-  return Number(n).toLocaleString('es-AR', { maximumFractionDigits: digits });
-}
-function signalClass(sig) {
-  return String(sig || '').startsWith('BUY') ? 'buy'
-       : String(sig || '').startsWith('SELL') ? 'sell'
-       : 'none';
-}
-function paperClass(ev) {
-  const t = String(ev || '').toUpperCase();
-  if (t.includes('OPEN') || t.includes('ENTRY')) return 'open';
-  if (t.includes('CLOSE') || t.includes('EXIT')) return 'close';
-  return 'none';
-}
-function getAvailablePairs(s) {
-  const set = new Set();
-  (s.pairs || []).forEach(p => set.add(String(p)));
-  Object.keys(s.zscore_history || {}).forEach(p => set.add(String(p)));
-  (s.opportunity_log || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
-  return Array.from(set).filter(Boolean);
-}
-function getDefaultPair(s) {
-  const pairs = getAvailablePairs(s);
-  if (!pairs.length) return null;
-  const saved = loadLS(ACTIVE_TAB_KEY, '');
-  return pairs.includes(saved) ? saved : pairs[0];
-}
-function getPaperEventsSource(s) {
-  const candidates = [
-    ['paper_events', s.paper_events], ['paper_trades', s.paper_trades], ['paper_trade_log', s.paper_trade_log],
-    ['paper_log', s.paper_log], ['paper_history', s.paper_history], ['paperTrading', s.paperTrading],
-    ['trades', s.trades], ['events', s.events]
-  ];
-  for (const [name, value] of candidates) if (Array.isArray(value) && value.length) return { name, items: value };
-  for (const [name, value] of candidates) if (Array.isArray(value)) return { name, items: value };
-  return { name: 'none', items: [] };
-}
-function pairFilter(items, pair) {
-  return (items || []).filter(x => String(x.pair || x.symbol || x.instrument || x.series || '') === String(pair || ''));
-}
-function rollingMean(values, window) {
-  const out = new Array(values.length).fill(null);
-  for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1);
-    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
-    out[i] = slice.reduce((a,b)=>a+b,0) / window;
-  }
-  return out;
-}
-function rollingStd(values, window) {
-  const out = new Array(values.length).fill(null);
-  for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) continue;
-    const slice = values.slice(i - window + 1, i + 1);
-    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
-    const mean = slice.reduce((a,b)=>a+b,0) / window;
-    const variance = slice.reduce((a,b)=>a + Math.pow(b-mean,2),0) / window;
-    out[i] = Math.sqrt(variance);
-  }
-  return out;
-}
-function buildBollinger(values, window, mult) {
-  const ma = rollingMean(values, window);
-  const std = rollingStd(values, window);
-  return {
-    ma,
-    upper: ma.map((m,i)=> (m===null || std[i]===null ? null : m + std[i]*mult)),
-    lower: ma.map((m,i)=> (m===null || std[i]===null ? null : m - std[i]*mult))
-  };
-}
-function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
-  const body = document.getElementById(id);
-  body.innerHTML = '';
-  if (!Array.isArray(items) || !items.length) {
-    const colspans = { logBody:6, paperBody:5, alertsBody:5, positionsBody:5, histTableBody:6, btTradesBody:9, btOptimizeBody:9 };
-    body.innerHTML = `<tr class="empty-row"><td colspan="${colspans[id] || 5}">${emptyMessage}</td></tr>`;
-    return;
-  }
-  items.slice().reverse().forEach(item => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = rowBuilder(item);
-    body.appendChild(tr);
-  });
-}
-function renderManualPairsList(s) {
-  const el = document.getElementById('manualPairsList');
-  el.innerHTML = '';
-  if (currentView !== 'live') { el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
-  const manualPairs = s.manual_pairs || [];
-  if (!manualPairs.length) {
-    el.innerHTML = '<span class="muted">Sin pares manuales cargados.</span>';
-    return;
-  }
-  manualPairs.forEach(pairName => {
-    const [left, right] = String(pairName).split('/');
-    const chip = document.createElement('div');
-    chip.className = 'chip';
-    chip.innerHTML = `<span>${pairName}</span>`;
-    const btn = document.createElement('button');
-    btn.textContent = 'X';
-    btn.onclick = async () => deletePair(left, right);
-    chip.appendChild(btn);
-    el.appendChild(chip);
-  });
-}
-function renderTabs(s) {
-  const tabsEl = document.getElementById('pairTabs');
-  if (currentView !== 'live') { tabsEl.classList.add('hidden'); return; }
-  tabsEl.classList.remove('hidden');
-
-  const pairs = getAvailablePairs(s);
-  activePair = getDefaultPair(s);
-  saveLS(ACTIVE_TAB_KEY, activePair || '');
-
-  tabsEl.innerHTML = '';
-  pairs.forEach(pair => {
-    const btn = document.createElement('button');
-    btn.className = `tab-btn ${pair === activePair ? 'active' : ''}`;
-    btn.textContent = pair;
-    btn.onclick = () => {
-      activePair = pair;
-      saveLS(ACTIVE_TAB_KEY, pair);
-      renderAll(stateCache);
-    };
-    tabsEl.appendChild(btn);
-  });
-}
-function renderRisk(r) {
-  document.getElementById('riskBox').innerHTML = `
-    <div>Capital</div><div>${fmt(r.capital,2)}</div>
-    <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
-    <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
-    <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
-    <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
-    <div>Utilización</div><div>${fmt((r.utilization_pct || 0) * 100,2)}%</div>
-    <div>Status</div><div>${r.status || '-'}</div>
-  `;
-}
-function renderNotes(notes) {
-  const el = document.getElementById('notes');
-  el.innerHTML = '';
-  (notes || []).forEach(n => {
-    const li = document.createElement('li');
-    li.textContent = n;
-    el.appendChild(li);
-  });
-}
-function renderPairHeader(s, pair, paperItems) {
-  const zscores = s.zscores || {};
-  const ratios = s.ratios || {};
-  const logs = pairFilter(s.opportunity_log, pair);
-  const alerts = pairFilter(s.alerts_sent, pair);
-  const positions = pairFilter(s.paper_positions, pair);
-
-  document.getElementById('pairTitle').textContent = pair || '-';
-  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'}`;
-  document.getElementById('pairKpis').innerHTML = `
-    <div class="mini-kpi"><div class="label">Ratio actual</div><div class="value">${fmt(ratios[pair], 8)}</div></div>
-    <div class="mini-kpi"><div class="label">Z-score actual</div><div class="value">${fmt(zscores[pair], 4)}</div></div>
-    <div class="mini-kpi"><div class="label">Logs</div><div class="value">${logs.length}</div></div>
-    <div class="mini-kpi"><div class="label">Paper events</div><div class="value">${paperItems.length}</div></div>
-    <div class="mini-kpi"><div class="label">Alertas</div><div class="value">${alerts.length}</div></div>
-    <div class="mini-kpi"><div class="label">Posiciones abiertas</div><div class="value">${positions.length}</div></div>
-  `;
-}
-function renderLiveChart(s) {
-  const pair = activePair;
-  const x = s.series_timestamps || [];
-  const y = (s.zscore_history || {})[pair] || [];
-  if (!pair || !x.length || !y.length) {
-    document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente para este par.</div>';
-    return;
-  }
-  Plotly.react('zscoreChart', [
-    { x, y, mode:'lines+markers', type:'scatter', name:pair, hovertemplate:`${pair}<br>%{x}<br>Z: %{y}<extra></extra>` }
-  ], {
-    paper_bgcolor:'#111827', plot_bgcolor:'#111827', font:{ color:'#e5e7eb' },
-    margin:{ t:20, r:20, b:50, l:50 }, xaxis:{ title:'Hora' }, yaxis:{ title:'Z-Score' }, legend:{ orientation:'h' }
-  }, { responsive:true, displayModeBar:false });
-}
-async function loadHistoricalData() {
-  setDebug('Cargando histórico...');
-  const r = await fetch('/api/history/phase1/al30-gd30?limit=2000');
-  if (!r.ok) throw new Error('No se pudo cargar histórico');
-  historicalCache = await r.json();
-  setDebug(`Histórico cargado: ${historicalCache.count || 0} filas`);
-  return historicalCache;
-}
-function renderHistoricalView(hist) {
-  const rows = hist?.rows || [];
-  const x = rows.map(r => r.trade_date);
-  const ratio = rows.map(r => Number(r.ratio));
-  const z = rows.map(r => r.zscore_20 === null ? null : Number(r.zscore_20));
-  const bb = buildBollinger(ratio, 20, 2);
-
-  document.getElementById('histSubTitle').textContent =
-    rows.length ? `Desde ${rows[0].trade_date} hasta ${rows[rows.length - 1].trade_date} | ${rows.length} ruedas` : 'Sin datos históricos';
-
-  const last = rows.length ? rows[rows.length - 1] : null;
-  document.getElementById('histKpis').innerHTML = `
-    <div class="mini-kpi"><div class="label">Último ratio</div><div class="value">${last ? fmt(last.ratio, 8) : '-'}</div></div>
-    <div class="mini-kpi"><div class="label">Último spread</div><div class="value">${last ? fmt(last.spread, 4) : '-'}</div></div>
-    <div class="mini-kpi"><div class="label">Último Z-Score 20</div><div class="value">${last ? fmt(last.zscore_20, 4) : '-'}</div></div>
-    <div class="mini-kpi"><div class="label">Ruedas</div><div class="value">${rows.length}</div></div>
-  `;
-
-  Plotly.react('histRatioChart', [
-    { x, y: ratio, mode:'lines', type:'scatter', name:'Ratio AL30/GD30', line:{ width:3, color:'#60a5fa' } },
-    { x, y: bb.ma, mode:'lines', type:'scatter', name:'MM 20', line:{ width:3, color:'#22c55e' } },
-    { x, y: bb.upper, mode:'lines', type:'scatter', name:'BB Superior', line:{ width:2, color:'#ef4444', dash:'dash' } },
-    { x, y: bb.lower, mode:'lines', type:'scatter', name:'BB Inferior', line:{ width:2, color:'#f59e0b', dash:'dash' }, fill:'tonexty', fillcolor:'rgba(245,158,11,0.15)' }
-  ], {
-    paper_bgcolor:'#111827', plot_bgcolor:'#111827', font:{ color:'#e5e7eb' },
-    margin:{ t:20, r:20, b:50, l:50 }, xaxis:{ title:'Fecha' }, yaxis:{ title:'Ratio' }, legend:{ orientation:'h' }
-  }, { responsive:true, displayModeBar:false });
-
-  Plotly.react('histZChart', [
-    { x, y: z, mode:'lines', type:'scatter', name:'Z-Score 20', line:{ width:3, color:'#60a5fa' } }
-  ], {
-    paper_bgcolor:'#111827', plot_bgcolor:'#111827', font:{ color:'#e5e7eb' },
-    margin:{ t:20, r:20, b:50, l:50 }, xaxis:{ title:'Fecha' }, yaxis:{ title:'Z-Score 20' }, legend:{ orientation:'h' }
-  }, { responsive:true, displayModeBar:false });
-
-  renderRows('histTableBody', rows, row => `
-    <td>${row.trade_date}</td>
-    <td>${fmt(row.left_close, 4)}</td>
-    <td>${fmt(row.right_close, 4)}</td>
-    <td>${fmt(row.ratio, 8)}</td>
-    <td>${fmt(row.spread, 4)}</td>
-    <td>${fmt(row.zscore_20, 4)}</td>
-  `, 'Sin histórico cargado');
-}
-async function loadBacktestData(params = null) {
-  setDebug('Cargando backtest...');
-  let url = '/api/history/backtest/al30-gd30';
-  if (params) url += `?${new URLSearchParams(params).toString()}`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('No se pudo cargar backtest');
-  backtestCache = await r.json();
-  setDebug(`Backtest cargado: ${(backtestCache.metrics || {}).trades || 0} trades`);
-  return backtestCache;
-}
-async function loadOptimizerData() {
-  setDebug('Cargando optimizer...');
-  const r = await fetch('/api/history/optimize/al30-gd30');
-  if (!r.ok) throw new Error('No se pudo cargar optimizer');
-  optimizerCache = await r.json();
-  setDebug(`Optimizer cargado: ${(optimizerCache.results || []).length} combinaciones`);
-  return optimizerCache;
-}
-function renderBacktestView(bt, opt) {
-  const metrics = bt?.metrics || {};
-  const equity = bt?.equity_curve || [];
-  const trades = bt?.trades || [];
-  const results = opt?.results || [];
-
-  document.getElementById('btSubTitle').textContent =
-    `Entry Z ${bt?.params?.entry_z ?? '-'} | Exit Z ${bt?.params?.exit_z ?? '-'} | Cost ${bt?.params?.cost ?? '-'} | Capital ${fmt(bt?.params?.capital, 0)}`;
-
-  document.getElementById('btKpis').innerHTML = `
-    <div class="mini-kpi"><div class="label">PnL total</div><div class="value">${fmt(metrics.total_pnl, 2)}</div></div>
-    <div class="mini-kpi"><div class="label">Retorno %</div><div class="value">${fmt(metrics.total_return_pct, 2)}%</div></div>
-    <div class="mini-kpi"><div class="label">Win rate</div><div class="value">${fmt((metrics.win_rate || 0) * 100, 2)}%</div></div>
-    <div class="mini-kpi"><div class="label">Profit factor</div><div class="value">${fmt(metrics.profit_factor, 2)}</div></div>
-    <div class="mini-kpi"><div class="label">Max DD</div><div class="value">${fmt(metrics.max_drawdown, 2)}</div></div>
-    <div class="mini-kpi"><div class="label">Avg trade</div><div class="value">${fmt(metrics.avg_trade, 2)}</div></div>
-    <div class="mini-kpi"><div class="label">Trades</div><div class="value">${fmt(metrics.trades, 0)}</div></div>
-  `;
-
-  Plotly.react('btEquityChart', [
-    { x: equity.map(x => x.date), y: equity.map(x => x.equity), mode:'lines', type:'scatter', name:'Equity Curve', line:{ width:3, color:'#22c55e' } }
-  ], {
-    paper_bgcolor:'#111827', plot_bgcolor:'#111827', font:{ color:'#e5e7eb' },
-    margin:{ t:20, r:20, b:50, l:50 }, xaxis:{ title:'Fecha' }, yaxis:{ title:'PnL acumulado' }, legend:{ orientation:'h' }
-  }, { responsive:true, displayModeBar:false });
-
-  renderRows('btTradesBody', trades, t => `
-    <td>${t.entry_date}</td>
-    <td>${t.exit_date}</td>
-    <td><span class="pill ${t.side === 'BUY' ? 'buy' : 'sell'}">${t.side}</span></td>
-    <td>${fmt(t.entry_z, 4)}</td>
-    <td>${fmt(t.exit_z, 4)}</td>
-    <td>${fmt(t.entry_ratio, 8)}</td>
-    <td>${fmt(t.exit_ratio, 8)}</td>
-    <td>${fmt(t.pnl_ratio, 6)}</td>
-    <td>${fmt(t.pnl_money, 2)}</td>
-  `, 'Sin trades en este backtest');
-
-  renderRows('btOptimizeBody', results, r => `
-    <td>${fmt(r.entry_z, 2)}</td>
-    <td>${fmt(r.exit_z, 2)}</td>
-    <td>${fmt(r.total_pnl, 2)}</td>
-    <td>${fmt(r.total_return_pct, 2)}%</td>
-    <td>${fmt(r.profit_factor, 2)}</td>
-    <td>${fmt((r.win_rate || 0) * 100, 2)}%</td>
-    <td>${fmt(r.max_drawdown, 2)}</td>
-    <td>${fmt(r.trades, 0)}</td>
-    <td>${fmt(r.avg_trade, 2)}</td>
-  `, 'Sin resultados de optimizer');
-}
-function applyView() {
-  document.getElementById('modeLiveBtn').classList.toggle('active', currentView === 'live');
-  document.getElementById('modeHistBtn').classList.toggle('active', currentView === 'history');
-  document.getElementById('modeBacktestBtn').classList.toggle('active', currentView === 'backtest');
-
-  document.getElementById('liveView').classList.toggle('hidden', currentView !== 'live');
-  document.getElementById('historyView').classList.toggle('hidden', currentView !== 'history');
-  document.getElementById('backtestView').classList.toggle('hidden', currentView !== 'backtest');
-  document.getElementById('liveControls').classList.toggle('hidden', currentView !== 'live');
-}
-async function switchView(view) {
-  currentView = view;
-  saveLS(ACTIVE_VIEW_KEY, view);
-  applyView();
-
-  if (view === 'history') {
-    try {
-      const hist = await loadHistoricalData();
-      renderHistoricalView(hist);
-    } catch (e) {
-      setDebug('Error cargando histórico AL30/GD30');
-    }
-    return;
-  }
-
-  if (view === 'backtest') {
-    try {
-      const bt = await loadBacktestData();
-      const opt = await loadOptimizerData();
-      renderBacktestView(bt, opt);
-    } catch (e) {
-      setDebug('Error cargando backtest AL30/GD30');
-    }
-    return;
-  }
-
-  if (view === 'live' && stateCache) renderAll(stateCache);
-}
-function renderAll(s) {
-  stateCache = s;
-  const paperSource = getPaperEventsSource(s);
-  activePair = getDefaultPair(s);
-  saveLS(ACTIVE_TAB_KEY, activePair || '');
-
-  const filteredLogs = pairFilter(s.opportunity_log, activePair);
-  const filteredPaper = pairFilter(paperSource.items, activePair);
-  const filteredAlerts = pairFilter(s.alerts_sent, activePair);
-  const filteredPositions = pairFilter(s.paper_positions, activePair);
-
-  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'} | TZ: ${s.timezone || '-'} | Symbols: ${(s.symbols || []).length}`;
-  document.getElementById('storageLabel').textContent = `DB: ${s.db_path || '-'}`;
-
-  renderManualPairsList(s);
-  renderTabs(s);
-  applyView();
-
-  if (currentView !== 'live') return;
-
-  renderPairHeader(s, activePair, filteredPaper);
-  renderRisk(s.risk_report || {});
-  renderNotes(s.notes || []);
-  renderLiveChart(s);
-
-  renderRows('logBody', filteredLogs, item => `
-    <td>${item.time || '-'}</td>
-    <td>${item.pair || '-'}</td>
-    <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
-    <td>${fmt(item.zscore,4)}</td>
-    <td>${fmt(item.edge_bps,2)}</td>
-    <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
-  `, 'Sin oportunidades para este par');
-
-  renderRows('paperBody', filteredPaper, item => `
-    <td>${item.time || item.timestamp || '-'}</td>
-    <td><span class="pill ${paperClass(item.event_type || item.event || item.type || item.action)}">${item.event_type || item.event || item.type || item.action || '-'}</span></td>
-    <td>${item.pair || item.symbol || item.instrument || item.series || '-'}</td>
-    <td>${item.side || item.direction || item.trade_side || '-'}</td>
-    <td>${fmt(item.pnl_currency ?? item.pnl ?? item.realized_pnl ?? item.unrealized_pnl,2)}</td>
-  `, 'Sin eventos de paper trading para este par');
-
-  renderRows('alertsBody', filteredAlerts, item => `
-    <td>${item.time || '-'}</td>
-    <td>${item.pair || '-'}</td>
-    <td>${item.signal || '-'}</td>
-    <td>${fmt(item.zscore,4)}</td>
-    <td>${(item.channels || []).join(', ')}</td>
-  `, 'Sin alertas para este par');
-
-  renderRows('positionsBody', filteredPositions, item => `
-    <td>${item.pair || '-'}</td>
-    <td>${item.side || '-'}</td>
-    <td>${fmt(item.entry_zscore,4)}</td>
-    <td>${fmt(item.entry_ratio,8)}</td>
-    <td>${fmt(item.size_notional,2)}</td>
-  `, 'Sin posiciones abiertas para este par');
-}
-async function loadState() {
-  const r = await fetch('/api/state');
-  if (!r.ok) throw new Error('No se pudo cargar /api/state');
-  return await r.json();
-}
-async function addPair() {
-  const left = document.getElementById('leftTickerInput').value.trim().toUpperCase();
-  const right = document.getElementById('rightTickerInput').value.trim().toUpperCase();
-  if (!left || !right) { setDebug('Completá ambos tickers.'); return; }
-
-  const r = await fetch('/api/config/pairs', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({ left, right })
-  });
-  const data = await r.json();
-  if (!r.ok) { setDebug(data.detail || 'Error agregando par.'); return; }
-
-  document.getElementById('leftTickerInput').value = '';
-  document.getElementById('rightTickerInput').value = '';
-  activePair = data.added || `${left}/${right}`;
-  saveLS(ACTIVE_TAB_KEY, activePair);
-  setDebug('');
-  await refresh();
-}
-async function deletePair(left, right) {
-  const r = await fetch('/api/config/pairs', {
-    method:'DELETE',
-    headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({ left, right })
-  });
-  const data = await r.json();
-  if (!r.ok) { setDebug(data.detail || 'Error eliminando par.'); return; }
-  if (activePair === `${left}/${right}`) saveLS(ACTIVE_TAB_KEY, '');
-  setDebug('');
-  await refresh();
-}
-async function runCustomBacktest() {
-  try {
-    const entry_z = document.getElementById('btEntryZ').value;
-    const exit_z = document.getElementById('btExitZ').value;
-    const capital = document.getElementById('btCapital').value;
-    const cost = document.getElementById('btCost').value;
-    const bt = await loadBacktestData({ entry_z, exit_z, capital, cost });
-    const opt = optimizerCache || await loadOptimizerData();
-    renderBacktestView(bt, opt);
-  } catch (e) {
-    setDebug('Error corriendo backtest');
-  }
-}
-async function refreshOptimizer() {
-  try {
-    const opt = await loadOptimizerData();
-    if (backtestCache) renderBacktestView(backtestCache, opt);
-  } catch (e) {
-    setDebug('Error cargando optimizer');
-  }
-}
-async function refresh() {
-  try {
-    const data = await loadState();
-    renderAll(data);
-  } catch (e) {
-    setDebug('Error cargando /api/state');
-  }
+function setView(v){
+view=v
+document.getElementById('liveView').style.display = v==='live'?'block':'none'
+document.getElementById('backtestView').style.display = v==='backtest'?'block':'none'
 }
 
-window.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('addPairBtn').onclick = addPair;
-  document.getElementById('refreshBtn').onclick = refresh;
-  document.getElementById('runBacktestBtn').onclick = runCustomBacktest;
-  document.getElementById('reloadOptimizerBtn').onclick = refreshOptimizer;
+async function loadLive(){
+const r = await fetch('/api/state')
+const j = await r.json()
+const pair = Object.keys(j.zscore_history)[0]
+const y = j.zscore_history[pair]
+const x = j.series_timestamps
+Plotly.newPlot('liveChart',[{x,y,type:'scatter'}])
+}
 
-  document.getElementById('modeLiveBtn').onclick = () => switchView('live');
-  document.getElementById('modeHistBtn').onclick = () => switchView('history');
-  document.getElementById('modeBacktestBtn').onclick = () => switchView('backtest');
+async function runBacktest(){
 
-  document.getElementById('leftTickerInput').addEventListener('keydown', e => { if (e.key === 'Enter') addPair(); });
-  document.getElementById('rightTickerInput').addEventListener('keydown', e => { if (e.key === 'Enter') addPair(); });
+const entry = document.getElementById('entryZ').value
+const exit = document.getElementById('exitZ').value
+const cap = document.getElementById('capital').value
+const cost = document.getElementById('cost').value
 
-  currentView = loadLS(ACTIVE_VIEW_KEY, 'live');
-  await refresh();
-  await switchView(currentView);
+const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`
 
-  setInterval(async () => {
-    if (currentView === 'live') await refresh();
-  }, 2000);
-});
+const r = await fetch(url)
+const j = await r.json()
+
+renderMetrics(j.metrics)
+renderEquity(j.equity_curve)
+renderTrades(j.trades)
+
+}
+
+function renderMetrics(m){
+document.getElementById('metrics').innerHTML = `
+PnL: ${m.total_pnl}<br>
+Return: ${m.total_return_pct}%<br>
+WinRate: ${m.win_rate}<br>
+PF: ${m.profit_factor}<br>
+DD: ${m.max_drawdown}
+`
+}
+
+function renderEquity(eq){
+Plotly.newPlot('equityChart',[{
+x: eq.map(e=>e.date),
+y: eq.map(e=>e.equity),
+type:'scatter'
+}])
+}
+
+function renderTrades(tr){
+const tbody = document.getElementById('trades')
+tbody.innerHTML=''
+tr.forEach(t=>{
+tbody.innerHTML += `
+<tr>
+<td>${t.entry_date}</td>
+<td>${t.exit_date}</td>
+<td>${t.side}</td>
+<td>${t.pnl_money}</td>
+</tr>`
+})
+}
+
+async function runOptimizer(){
+
+const cap = document.getElementById('capital').value
+const cost = document.getElementById('cost').value
+
+let results = []
+
+for(let entry of [1.5,2,2.5,3]){
+for(let exit of [0,0.5,1]){
+
+const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`
+const r = await fetch(url)
+const j = await r.json()
+
+const m = j.metrics
+
+const score = m.profit_factor / (1 + Math.abs(m.max_drawdown))
+
+results.push({
+entry, exit,
+pnl: m.total_pnl,
+pf: m.profit_factor,
+dd: m.max_drawdown,
+wr: m.win_rate,
+score
+})
+
+}
+}
+
+results.sort((a,b)=>b.score-a.score)
+
+renderOptimizer(results)
+
+}
+
+function renderOptimizer(res){
+
+let html = `<table class="table"><tr>
+<th>Entry</th><th>Exit</th><th>Score</th><th>PF</th><th>DD</th><th>WR</th><th>PnL</th>
+</tr>`
+
+res.forEach(r=>{
+html += `<tr>
+<td>${r.entry}</td>
+<td>${r.exit}</td>
+<td>${r.score.toFixed(2)}</td>
+<td>${r.pf.toFixed(2)}</td>
+<td>${r.dd.toFixed(2)}</td>
+<td>${r.wr.toFixed(2)}</td>
+<td>${r.pnl.toFixed(0)}</td>
+</tr>`
+})
+
+html += `</table>`
+
+document.getElementById('optimizer').innerHTML = html
+
+}
+
+loadLive()
+
 </script>
+
 </body>
 </html>
