@@ -10,11 +10,22 @@
 body { background:#0f172a; color:#e2e8f0; font-family:Arial; margin:0; }
 .wrap { padding:20px; max-width:1400px; margin:auto; }
 .card { background:#111827; padding:16px; border-radius:12px; margin-bottom:16px; }
-button { padding:10px; border-radius:8px; border:none; cursor:pointer; }
+button { padding:10px; border-radius:8px; border:none; cursor:pointer; margin-right:8px; }
 .mode-btn { background:#1f2937; color:#fff; }
 .mode-btn.active { background:#2563eb; }
 .table { width:100%; border-collapse:collapse; }
-.table th, .table td { padding:6px; border-bottom:1px solid #333; }
+.table th, .table td { padding:6px; border-bottom:1px solid #333; text-align:left; }
+#debug { margin: 8px 0 16px 0; color:#fca5a5; }
+.kpis { line-height: 1.8; }
+.controls-row { margin-bottom: 16px; }
+input, select {
+  background:#0b1220;
+  color:#e2e8f0;
+  border:1px solid #334155;
+  border-radius:8px;
+  padding:8px;
+  margin-right:8px;
+}
 </style>
 </head>
 
@@ -24,204 +35,345 @@ button { padding:10px; border-radius:8px; border:none; cursor:pointer; }
 <h1>Trading Desk</h1>
 <div id="debug"></div>
 
-<div>
-<button class="mode-btn active" onclick="setView('live')" id="btnLive">LIVE</button>
-<button class="mode-btn" onclick="setView('backtest')" id="btnBT">BACKTEST</button>
+<div class="controls-row">
+  <button class="mode-btn active" onclick="setView('live')" id="btnLive">LIVE</button>
+  <button class="mode-btn" onclick="setView('backtest')" id="btnBT">BACKTEST</button>
 </div>
 
 <div id="liveView">
-<div class="card">
-<h3>ZScore</h3>
-<div id="liveChart"></div>
-</div>
+  <div class="card">
+    <h3>ZScore</h3>
+    <div id="liveChart" style="height:420px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Estado</h3>
+    <div id="liveInfo"></div>
+  </div>
+
+  <div class="card">
+    <h3>Oportunidades</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Hora</th>
+          <th>Par</th>
+          <th>Operación</th>
+          <th>Z</th>
+          <th>Edge</th>
+          <th>Filtro</th>
+        </tr>
+      </thead>
+      <tbody id="liveLog"></tbody>
+    </table>
+  </div>
 </div>
 
 <div id="backtestView" style="display:none">
 
-<div class="card">
-<h3>Parámetros</h3>
+  <div class="card">
+    <h3>Parámetros</h3>
 
-Entry Z:
-<select id="entryZ">
-<option>1.5</option>
-<option selected>2.0</option>
-<option>2.5</option>
-</select>
+    Entry Z:
+    <select id="entryZ">
+      <option>1.5</option>
+      <option selected>2.0</option>
+      <option>2.5</option>
+      <option>3.0</option>
+    </select>
 
-Exit Z:
-<select id="exitZ">
-<option selected>0</option>
-<option>0.5</option>
-</select>
+    Exit Z:
+    <select id="exitZ">
+      <option selected>0</option>
+      <option>0.5</option>
+      <option>1.0</option>
+    </select>
 
-Capital:
-<input id="capital" value="1000000"/>
+    Capital:
+    <input id="capital" value="1000000"/>
 
-Cost:
-<input id="cost" value="0.003"/>
+    Cost:
+    <input id="cost" value="0.003"/>
 
-<button onclick="runBacktest()">RUN<button onclick="runOptimizer()">OPTIMIZER</button>
+<button onclick="runBacktest()">RUN</button>
+<button onclick="runOptimizer()">OPTIMIZER</button>
+
+  </div>
+
+  <div class="card">
+    <h3>Métricas</h3>
+    <div id="metrics" class="kpis"></div>
+  </div>
+
+  <div class="card">
+    <h3>Optimizer</h3>
+    <div id="optimizer"></div>
+  </div>
+
+  <div class="card">
+    <h3>Equity</h3>
+    <div id="equityChart" style="height:420px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Trades</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>Side</th>
+          <th>Entry Z</th>
+          <th>Exit Z</th>
+          <th>Entry Ratio</th>
+          <th>Exit Ratio</th>
+          <th>PnL Ratio</th>
+          <th>PnL $</th>
+        </tr>
+      </thead>
+      <tbody id="trades"></tbody>
+    </table>
+  </div>
+
 </div>
-<div class="card">
-<h3>Optimizer</h3>
-<div id="optimizer"></div>
-</div>
-
-<div class="card">
-<h3>Equity</h3>
-<div id="equityChart"></div>
-</div>
-
-<div class="card">
-<h3>Trades</h3>
-<table class="table">
-<thead>
-<tr>
-<th>Entry</th>
-<th>Exit</th>
-<th>Side</th>
-<th>PnL</th>
-</tr>
-</thead>
-<tbody id="trades"></tbody>
-</table>
-</div>
 
 </div>
-
-</div>
-
 
 <script>
-let view = 'live'
+let view = 'live';
 
 function setView(v){
-view=v
-document.getElementById('liveView').style.display = v==='live'?'block':'none'
-document.getElementById('backtestView').style.display = v==='backtest'?'block':'none'
+  view = v;
+  document.getElementById('liveView').style.display = v === 'live' ? 'block' : 'none';
+  document.getElementById('backtestView').style.display = v === 'backtest' ? 'block' : 'none';
+  document.getElementById('btnLive').classList.toggle('active', v === 'live');
+  document.getElementById('btnBT').classList.toggle('active', v === 'backtest');
+}
+
+function fmt(n, d=4){
+  if(n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
+  return Number(n).toLocaleString('es-AR', { maximumFractionDigits:d });
 }
 
 async function loadLive(){
-const r = await fetch('/api/state')
-const j = await r.json()
-const pair = Object.keys(j.zscore_history)[0]
-const y = j.zscore_history[pair]
-const x = j.series_timestamps
-Plotly.newPlot('liveChart',[{x,y,type:'scatter'}])
+  try {
+    const r = await fetch('/api/state');
+    const j = await r.json();
+
+    const keys = Object.keys(j.zscore_history || {});
+    if (!keys.length) {
+      document.getElementById('debug').innerText = 'Sin zscore_history en /api/state';
+      return;
+    }
+
+    const pair = keys[0];
+    const y = j.zscore_history[pair] || [];
+    const x = j.series_timestamps || [];
+
+    Plotly.newPlot('liveChart', [{
+      x, y, type:'scatter', mode:'lines+markers', name:pair
+    }], {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e2e8f0' },
+      margin:{ t:20, r:20, b:40, l:50 }
+    }, {responsive:true});
+
+    document.getElementById('liveInfo').innerHTML = `
+      <b>Modo:</b> ${j.mode || '-'}<br>
+      <b>Timezone:</b> ${j.timezone || '-'}<br>
+      <b>DB:</b> ${j.db_path || '-'}<br>
+      <b>Pares:</b> ${(j.pairs || []).join(', ')}
+    `;
+
+    renderLiveLog(j.opportunity_log || []);
+    document.getElementById('debug').innerText = '';
+  } catch (e) {
+    document.getElementById('debug').innerText = 'Error cargando LIVE';
+  }
+}
+
+function renderLiveLog(rows){
+  const tbody = document.getElementById('liveLog');
+  tbody.innerHTML = '';
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6">Sin datos</td></tr>`;
+    return;
+  }
+
+  rows.slice().reverse().forEach(item => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${item.time || '-'}</td>
+        <td>${item.pair || '-'}</td>
+        <td>${item.signal || '-'}</td>
+        <td>${fmt(item.zscore,4)}</td>
+        <td>${fmt(item.edge_bps,2)}</td>
+        <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
+      </tr>
+    `;
+  });
 }
 
 async function runBacktest(){
+  try {
+    const entry = document.getElementById('entryZ').value;
+    const exit = document.getElementById('exitZ').value;
+    const cap = document.getElementById('capital').value;
+    const cost = document.getElementById('cost').value;
 
-const entry = document.getElementById('entryZ').value
-const exit = document.getElementById('exitZ').value
-const cap = document.getElementById('capital').value
-const cost = document.getElementById('cost').value
+    const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`;
+    const r = await fetch(url);
+    const j = await r.json();
 
-const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`
+    if (!r.ok || (j.ok === false)) {
+      document.getElementById('debug').innerText = j.error || 'Error de backtest';
+      return;
+    }
 
-const r = await fetch(url)
-const j = await r.json()
-
-renderMetrics(j.metrics)
-renderEquity(j.equity_curve)
-renderTrades(j.trades)
-
+    renderMetrics(j.metrics || {});
+    renderEquity(j.equity_curve || []);
+    renderTrades(j.trades || []);
+    document.getElementById('debug').innerText = '';
+  } catch (e) {
+    document.getElementById('debug').innerText = 'Error corriendo backtest';
+  }
 }
 
 function renderMetrics(m){
-document.getElementById('metrics').innerHTML = `
-PnL: ${m.total_pnl}<br>
-Return: ${m.total_return_pct}%<br>
-WinRate: ${m.win_rate}<br>
-PF: ${m.profit_factor}<br>
-DD: ${m.max_drawdown}
-`
+  document.getElementById('metrics').innerHTML = `
+    <b>PnL:</b> ${fmt(m.total_pnl,2)}<br>
+    <b>Return:</b> ${fmt(m.total_return_pct,2)}%<br>
+    <b>Win Rate:</b> ${fmt((m.win_rate || 0) * 100,2)}%<br>
+    <b>Profit Factor:</b> ${fmt(m.profit_factor,2)}<br>
+    <b>Drawdown:</b> ${fmt(m.max_drawdown,2)}<br>
+    <b>Avg Trade:</b> ${fmt(m.avg_trade,2)}<br>
+    <b>Trades:</b> ${fmt(m.trades,0)}
+  `;
 }
 
 function renderEquity(eq){
-Plotly.newPlot('equityChart',[{
-x: eq.map(e=>e.date),
-y: eq.map(e=>e.equity),
-type:'scatter'
-}])
+  Plotly.newPlot('equityChart', [{
+    x: eq.map(e => e.date),
+    y: eq.map(e => e.equity),
+    type:'scatter',
+    mode:'lines',
+    name:'Equity'
+  }], {
+    paper_bgcolor:'#111827',
+    plot_bgcolor:'#111827',
+    font:{ color:'#e2e8f0' },
+    margin:{ t:20, r:20, b:40, l:50 }
+  }, {responsive:true});
 }
 
 function renderTrades(tr){
-const tbody = document.getElementById('trades')
-tbody.innerHTML=''
-tr.forEach(t=>{
-tbody.innerHTML += `
-<tr>
-<td>${t.entry_date}</td>
-<td>${t.exit_date}</td>
-<td>${t.side}</td>
-<td>${t.pnl_money}</td>
-</tr>`
-})
+  const tbody = document.getElementById('trades');
+  tbody.innerHTML = '';
+
+  if (!tr.length) {
+    tbody.innerHTML = `<tr><td colspan="9">Sin trades</td></tr>`;
+    return;
+  }
+
+  tr.forEach(t => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${t.entry_date || '-'}</td>
+        <td>${t.exit_date || '-'}</td>
+        <td>${t.side || '-'}</td>
+        <td>${fmt(t.entry_z,4)}</td>
+        <td>${fmt(t.exit_z,4)}</td>
+        <td>${fmt(t.entry_ratio,8)}</td>
+        <td>${fmt(t.exit_ratio,8)}</td>
+        <td>${fmt(t.pnl_ratio,6)}</td>
+        <td>${fmt(t.pnl_money,2)}</td>
+      </tr>
+    `;
+  });
 }
 
 async function runOptimizer(){
+  try {
+    const cap = document.getElementById('capital').value;
+    const cost = document.getElementById('cost').value;
 
-const cap = document.getElementById('capital').value
-const cost = document.getElementById('cost').value
+    let results = [];
 
-let results = []
+    for (const entry of [1.5, 2, 2.5, 3]) {
+      for (const exit of [0, 0.5, 1]) {
+        const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`;
+        const r = await fetch(url);
+        const j = await r.json();
 
-for(let entry of [1.5,2,2.5,3]){
-for(let exit of [0,0.5,1]){
+        if (!r.ok || (j.ok === false)) continue;
 
-const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`
-const r = await fetch(url)
-const j = await r.json()
+        const m = j.metrics || {};
+        const score = (Number(m.profit_factor) || 0) / (1 + Math.abs(Number(m.max_drawdown) || 0));
 
-const m = j.metrics
+        results.push({
+          entry,
+          exit,
+          pnl: Number(m.total_pnl) || 0,
+          pf: Number(m.profit_factor) || 0,
+          dd: Number(m.max_drawdown) || 0,
+          wr: Number(m.win_rate) || 0,
+          trades: Number(m.trades) || 0,
+          score
+        });
+      }
+    }
 
-const score = m.profit_factor / (1 + Math.abs(m.max_drawdown))
-
-results.push({
-entry, exit,
-pnl: m.total_pnl,
-pf: m.profit_factor,
-dd: m.max_drawdown,
-wr: m.win_rate,
-score
-})
-
-}
-}
-
-results.sort((a,b)=>b.score-a.score)
-
-renderOptimizer(results)
-
+    results.sort((a,b) => b.score - a.score);
+    renderOptimizer(results);
+    document.getElementById('debug').innerText = '';
+  } catch (e) {
+    document.getElementById('debug').innerText = 'Error corriendo optimizer';
+  }
 }
 
 function renderOptimizer(res){
+  const box = document.getElementById('optimizer');
 
-let html = `<table class="table"><tr>
-<th>Entry</th><th>Exit</th><th>Score</th><th>PF</th><th>DD</th><th>WR</th><th>PnL</th>
-</tr>`
+  if (!res.length) {
+    box.innerHTML = 'Sin resultados';
+    return;
+  }
 
-res.forEach(r=>{
-html += `<tr>
-<td>${r.entry}</td>
-<td>${r.exit}</td>
-<td>${r.score.toFixed(2)}</td>
-<td>${r.pf.toFixed(2)}</td>
-<td>${r.dd.toFixed(2)}</td>
-<td>${r.wr.toFixed(2)}</td>
-<td>${r.pnl.toFixed(0)}</td>
-</tr>`
-})
+  let html = `<table class="table">
+    <thead>
+      <tr>
+        <th>Entry</th>
+        <th>Exit</th>
+        <th>Score</th>
+        <th>PF</th>
+        <th>DD</th>
+        <th>WR</th>
+        <th>Trades</th>
+        <th>PnL</th>
+      </tr>
+    </thead>
+    <tbody>`;
 
-html += `</table>`
+  res.forEach(r => {
+    html += `<tr>
+      <td>${r.entry}</td>
+      <td>${r.exit}</td>
+      <td>${fmt(r.score,4)}</td>
+      <td>${fmt(r.pf,2)}</td>
+      <td>${fmt(r.dd,2)}</td>
+      <td>${fmt(r.wr * 100,2)}%</td>
+      <td>${fmt(r.trades,0)}</td>
+      <td>${fmt(r.pnl,0)}</td>
+    </tr>`;
+  });
 
-document.getElementById('optimizer').innerHTML = html
-
+  html += `</tbody></table>`;
+  box.innerHTML = html;
 }
 
-loadLive()
-
+loadLive();
 </script>
 
 </body>
