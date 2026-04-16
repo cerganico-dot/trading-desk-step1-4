@@ -1,26 +1,36 @@
 from __future__ import annotations
 
-import ast
+import importlib
+import inspect
 import json
 import math
-import re
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import requests
-
 
 class HistoricalPhase1Service:
-    BASE_URL = "https://iol.invertironline.com/titulo/datoshistoricos?mercado=bcba&simbolo={symbol}"
+    PUBLIC_URL = "https://iol.invertironline.com/titulo/datoshistoricos?mercado=bcba&simbolo={symbol}"
+    API_URL_CANDIDATES = [
+        "https://api.invertironline.com/api/v2/bCBA/Titulos/{symbol}/Cotizacion/historica",
+        "https://api.invertironline.com/api/v2/bCBA/Titulos/{symbol}/cotizacion/historica",
+        "https://api.invertironline.com/api/v2/bcba/titulos/{symbol}/cotizacion/historica",
+    ]
     SUPPORTED_SYMBOLS = ["AL30", "GD30"]
 
     def __init__(self, db_path: str, timezone: str = "America/Argentina/Buenos_Aires") -> None:
         self.db_path = db_path
         self.timezone = timezone
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._provider = self._load_provider()
         self._init_db()
+
+    def _load_provider(self) -> Any:
+        try:
+            return importlib.import_module("engine.iol_provider")
+        except Exception:
+            return None
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -40,7 +50,7 @@ class HistoricalPhase1Service:
                     low REAL,
                     close REAL NOT NULL,
                     volume REAL,
-                    source TEXT DEFAULT 'IOL_PUBLIC',
+                    source TEXT DEFAULT 'IOL',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(symbol, trade_date)
                 )
@@ -64,43 +74,31 @@ class HistoricalPhase1Service:
                 )
                 """
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)")
             conn.commit()
 
     def _parse_date(self, raw: Any) -> Optional[str]:
         if raw is None:
             return None
-
         text = str(raw).strip()
         if not text:
             return None
-
         if "T" in text:
             text = text.split("T")[0]
-
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
             try:
                 return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
             except ValueError:
                 continue
-
         return None
 
     def _to_float(self, value: Any) -> Optional[float]:
         if value is None:
             return None
-
-        text = str(value).strip()
+        text = str(value).strip().replace("\xa0", "").replace(" ", "")
         if text == "":
             return None
-
-        text = text.replace("\xa0", "").replace(" ", "")
-
         if "," in text and "." in text:
             if text.rfind(",") > text.rfind("."):
                 text = text.replace(".", "").replace(",", ".")
@@ -108,151 +106,45 @@ class HistoricalPhase1Service:
                 text = text.replace(",", "")
         else:
             text = text.replace(",", ".")
-
         try:
             return float(text)
         except Exception:
             return None
 
-    def _extract_close(self, item: Dict[str, Any]) -> Optional[float]:
-        for key in ["ultimoPrecio", "ultimo", "cierre", "close", "precioCierre"]:
-            value = self._to_float(item.get(key))
-            if value is not None:
-                return value
+    def _extract_first_float(self, item: Dict[str, Any], keys: List[str]) -> Optional[float]:
+        for key in keys:
+            if key in item:
+                value = self._to_float(item.get(key))
+                if value is not None:
+                    return value
         return None
 
-    def _extract_open(self, item: Dict[str, Any]) -> Optional[float]:
-        for key in ["apertura", "open", "precioApertura"]:
-            value = self._to_float(item.get(key))
-            if value is not None:
-                return value
-        return None
-
-    def _extract_high(self, item: Dict[str, Any]) -> Optional[float]:
-        for key in ["maximo", "high", "precioMaximo"]:
-            value = self._to_float(item.get(key))
-            if value is not None:
-                return value
-        return None
-
-    def _extract_low(self, item: Dict[str, Any]) -> Optional[float]:
-        for key in ["minimo", "low", "precioMinimo"]:
-            value = self._to_float(item.get(key))
-            if value is not None:
-                return value
-        return None
-
-    def _extract_volume(self, item: Dict[str, Any]) -> Optional[float]:
-        for key in ["volumenNominal", "volumen", "volume", "volumenOperado"]:
-            value = self._to_float(item.get(key))
-            if value is not None:
-                return value
-        return None
-
-    def _extract_candidate_payload_text(self, text: str) -> str:
-        clean = text.strip()
-        clean = re.sub(r"^\)\]\}',?\s*", "", clean)
-
-        if clean.startswith("[") or clean.startswith("{"):
-            return clean
-
-        array_match = re.search(r"(\[\s*[\s\S]*\])", clean)
-        if array_match:
-            return array_match.group(1)
-
-        object_match = re.search(r"(\{\s*[\s\S]*\})", clean)
-        if object_match:
-            return object_match.group(1)
-
-        return clean
-
-    def _quote_unquoted_keys(self, text: str) -> str:
-        pattern = re.compile(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)')
-        prev = None
-        cur = text
-        while prev != cur:
-            prev = cur
-            cur = pattern.sub(r'\1"\2"\3', cur)
-        return cur
-
-    def _try_parse_json_family(self, raw_text: str) -> Any:
-        candidate = self._extract_candidate_payload_text(raw_text)
-
-        try:
-            return json.loads(candidate)
-        except Exception:
-            pass
-
-        quoted_keys = self._quote_unquoted_keys(candidate)
-        try:
-            return json.loads(quoted_keys)
-        except Exception:
-            pass
-
-        pythonish = quoted_keys
-        pythonish = re.sub(r"\btrue\b", "True", pythonish, flags=re.IGNORECASE)
-        pythonish = re.sub(r"\bfalse\b", "False", pythonish, flags=re.IGNORECASE)
-        pythonish = re.sub(r"\bnull\b", "None", pythonish, flags=re.IGNORECASE)
-
-        try:
-            return ast.literal_eval(pythonish)
-        except Exception:
-            pass
-
-        single_to_double = quoted_keys.replace("'", '"')
-        try:
-            return json.loads(single_to_double)
-        except Exception:
-            pass
-
-        raise ValueError(f"IOL payload parse error: {candidate[:400]}")
-
-    def _fetch_payload(self, symbol: str) -> Any:
-        url = self.BASE_URL.format(symbol=symbol)
-
-        response = requests.get(
-            url,
-            timeout=30,
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json,text/plain,*/*",
-                "Referer": "https://iol.invertironline.com/",
-            },
-        )
-        response.raise_for_status()
-
-        try:
-            return response.json()
-        except Exception:
-            return self._try_parse_json_family(response.text)
-
-    def _fetch_symbol_history(self, symbol: str, years: int = 2) -> List[Dict[str, Any]]:
-        symbol = symbol.upper()
-        if symbol not in self.SUPPORTED_SYMBOLS:
-            raise ValueError(f"unsupported symbol: {symbol}")
-
-        payload = self._fetch_payload(symbol)
-        items: List[Dict[str, Any]] = []
-
+    def _extract_items(self, payload: Any) -> List[Dict[str, Any]]:
         if isinstance(payload, list):
-            items = payload
-        elif isinstance(payload, dict):
-            for key in ["data", "items", "result", "results"]:
-                maybe = payload.get(key)
-                if isinstance(maybe, list):
-                    items = maybe
-                    break
+            return [x for x in payload if isinstance(x, dict)]
+        if isinstance(payload, dict):
+            for key in ["data", "items", "result", "results", "serie", "historicos", "cotizaciones"]:
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return [x for x in value if isinstance(x, dict)]
+        return []
 
+    def _normalize_rows(self, symbol: str, payload: Any, years: int) -> List[Dict[str, Any]]:
+        items = self._extract_items(payload)
         cutoff = (datetime.utcnow() - timedelta(days=365 * years + 15)).date()
-
         rows: List[Dict[str, Any]] = []
+
         for item in items:
-            if not isinstance(item, dict):
-                continue
-
-            trade_date = self._parse_date(item.get("fecha") or item.get("tradeDate") or item.get("date"))
-            close_price = self._extract_close(item)
-
+            trade_date = self._parse_date(
+                item.get("fecha")
+                or item.get("tradeDate")
+                or item.get("date")
+                or item.get("Fecha")
+            )
+            close_price = self._extract_first_float(
+                item,
+                ["ultimoPrecio", "ultimo", "cierre", "close", "precioCierre", "ultimoOperado"],
+            )
             if trade_date is None or close_price is None:
                 continue
 
@@ -260,38 +152,195 @@ class HistoricalPhase1Service:
             if dt < cutoff:
                 continue
 
+            open_price = self._extract_first_float(item, ["apertura", "open", "precioApertura"])
+            high_price = self._extract_first_float(item, ["maximo", "high", "precioMaximo"])
+            low_price = self._extract_first_float(item, ["minimo", "low", "precioMinimo"])
+            volume = self._extract_first_float(item, ["volumenNominal", "volumen", "volume", "volumenOperado"])
+
             rows.append(
                 {
                     "symbol": symbol,
                     "trade_date": trade_date,
-                    "open": self._extract_open(item),
-                    "high": self._extract_high(item),
-                    "low": self._extract_low(item),
+                    "open": open_price,
+                    "high": high_price,
+                    "low": low_price,
                     "close": close_price,
-                    "volume": self._extract_volume(item),
+                    "volume": volume,
                 }
             )
 
         rows.sort(key=lambda x: x["trade_date"])
-        return rows
+        dedup: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            dedup[row["trade_date"]] = row
+        return [dedup[k] for k in sorted(dedup.keys())]
+
+    def _provider_instances(self) -> List[Any]:
+        instances: List[Any] = []
+        mod = self._provider
+        if mod is None:
+            return instances
+
+        for attr_name in ["iol_provider", "provider", "client", "iol", "IOL", "session_client"]:
+            obj = getattr(mod, attr_name, None)
+            if obj is not None:
+                instances.append(obj)
+
+        for class_name in ["IOLProvider", "IOLClient", "IOLApi", "Client", "Provider"]:
+            cls = getattr(mod, class_name, None)
+            if cls is None or not inspect.isclass(cls):
+                continue
+            try:
+                instances.append(cls())
+            except Exception:
+                continue
+
+        uniq: List[Any] = []
+        seen = set()
+        for inst in instances:
+            ident = id(inst)
+            if ident not in seen:
+                seen.add(ident)
+                uniq.append(inst)
+        return uniq
+
+    def _invoke_callable(self, fn: Any, **kwargs: Any) -> Any:
+        try:
+            sig = inspect.signature(fn)
+            accepted = {}
+            for name in sig.parameters.keys():
+                if name in kwargs:
+                    accepted[name] = kwargs[name]
+            return fn(**accepted)
+        except Exception:
+            try:
+                return fn(kwargs.get("symbol"))
+            except Exception:
+                return None
+
+    def _fetch_from_provider_methods(self, symbol: str, years: int) -> Optional[Any]:
+        method_names = [
+            "get_historical_data",
+            "get_historical_prices",
+            "fetch_historical_data",
+            "historical_data",
+            "get_daily_history",
+            "get_history",
+            "get_symbol_history",
+            "get_titulo_datos_historicos",
+        ]
+
+        since_date = (datetime.utcnow() - timedelta(days=365 * years + 15)).strftime("%Y-%m-%d")
+        to_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+        for inst in self._provider_instances():
+            for name in method_names:
+                fn = getattr(inst, name, None)
+                if not callable(fn):
+                    continue
+                payload = self._invoke_callable(
+                    fn,
+                    symbol=symbol,
+                    years=years,
+                    limit=years * 365,
+                    market="bcba",
+                    exchange="bcba",
+                    plaza="BCBA",
+                    since=since_date,
+                    from_date=since_date,
+                    to_date=to_date,
+                )
+                if payload is not None:
+                    return payload
+        return None
+
+    def _fetch_from_provider_session(self, symbol: str) -> Optional[Any]:
+        mod = self._provider
+        if mod is None:
+            return None
+
+        session = None
+        for inst in self._provider_instances():
+            for attr_name in ["session", "http", "client", "_session"]:
+                sess = getattr(inst, attr_name, None)
+                if sess is not None and hasattr(sess, "get"):
+                    session = sess
+                    break
+            if session is not None:
+                break
+
+        if session is None:
+            for attr_name in ["session", "http", "client"]:
+                sess = getattr(mod, attr_name, None)
+                if sess is not None and hasattr(sess, "get"):
+                    session = sess
+                    break
+
+        if session is None:
+            return None
+
+        headers = {"Accept": "application/json,text/plain,*/*"}
+        for url_tpl in self.API_URL_CANDIDATES + [self.PUBLIC_URL]:
+            url = url_tpl.format(symbol=symbol)
+            try:
+                response = session.get(url, timeout=30, headers=headers)
+            except TypeError:
+                response = session.get(url)
+            except Exception:
+                continue
+
+            text = getattr(response, "text", "")
+            status_code = getattr(response, "status_code", 200)
+
+            if status_code >= 400:
+                continue
+            if isinstance(text, str) and "<html" in text.lower():
+                continue
+
+            try:
+                return response.json()
+            except Exception:
+                try:
+                    return json.loads(text)
+                except Exception:
+                    continue
+
+        return None
+
+    def _fetch_payload(self, symbol: str, years: int) -> Any:
+        payload = self._fetch_from_provider_methods(symbol=symbol, years=years)
+        if payload is not None:
+            return payload
+
+        payload = self._fetch_from_provider_session(symbol=symbol)
+        if payload is not None:
+            return payload
+
+        raise ValueError("IOL provider unavailable for authenticated historical fetch")
+
+    def _fetch_symbol_history(self, symbol: str, years: int = 2) -> List[Dict[str, Any]]:
+        symbol = symbol.upper()
+        if symbol not in self.SUPPORTED_SYMBOLS:
+            raise ValueError(f"unsupported symbol: {symbol}")
+        payload = self._fetch_payload(symbol=symbol, years=years)
+        return self._normalize_rows(symbol=symbol, payload=payload, years=years)
 
     def _upsert_symbol_rows(self, rows: List[Dict[str, Any]]) -> int:
         if not rows:
             return 0
-
         with self._connect() as conn:
             conn.executemany(
                 """
                 INSERT INTO historical_daily_bars (
                     symbol, trade_date, open, high, low, close, volume, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'IOL_PUBLIC')
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'IOL')
                 ON CONFLICT(symbol, trade_date) DO UPDATE SET
                     open=excluded.open,
                     high=excluded.high,
                     low=excluded.low,
                     close=excluded.close,
                     volume=excluded.volume,
-                    source='IOL_PUBLIC'
+                    source='IOL'
                 """,
                 [
                     (
@@ -307,7 +356,6 @@ class HistoricalPhase1Service:
                 ],
             )
             conn.commit()
-
         return len(rows)
 
     def _load_symbol_rows(self, symbol: str) -> List[Dict[str, Any]]:
@@ -336,7 +384,6 @@ class HistoricalPhase1Service:
     def _build_pair_metrics(self, left_rows: List[Dict[str, Any]], right_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         left_map = {row["trade_date"]: row for row in left_rows}
         right_map = {row["trade_date"]: row for row in right_rows}
-
         common_dates = sorted(set(left_map.keys()) & set(right_map.keys()))
         metrics: List[Dict[str, Any]] = []
         ratio_window: List[float] = []
@@ -344,7 +391,6 @@ class HistoricalPhase1Service:
         for trade_date in common_dates:
             left_close = self._to_float(left_map[trade_date]["close"])
             right_close = self._to_float(right_map[trade_date]["close"])
-
             if left_close is None or right_close is None or right_close == 0:
                 continue
 
@@ -404,9 +450,10 @@ class HistoricalPhase1Service:
 
     def bootstrap_phase1(self, years: int = 2) -> Dict[str, Any]:
         symbol_counts: Dict[str, int] = {}
-
         for symbol in self.SUPPORTED_SYMBOLS:
             rows = self._fetch_symbol_history(symbol=symbol, years=years)
+            if not rows:
+                raise ValueError(f"IOL historical returned 0 rows for {symbol}")
             symbol_counts[symbol] = self._upsert_symbol_rows(rows)
 
         left_rows = self._load_symbol_rows("AL30")
@@ -426,44 +473,19 @@ class HistoricalPhase1Service:
 
     def status(self) -> Dict[str, Any]:
         with self._connect() as conn:
-            al30_count = conn.execute(
-                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'"
-            ).fetchone()[0]
-            gd30_count = conn.execute(
-                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'"
-            ).fetchone()[0]
-            pair_count = conn.execute(
-                "SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'"
-            ).fetchone()[0]
+            al30_count = conn.execute("SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'").fetchone()[0]
+            gd30_count = conn.execute("SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'").fetchone()[0]
+            pair_count = conn.execute("SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'").fetchone()[0]
 
         return {
             "ok": True,
             "db_path": self.db_path,
             "timezone": self.timezone,
-            "symbols": {
-                "AL30": al30_count,
-                "GD30": gd30_count,
-            },
-            "pair": {
-                "AL30-GD30": pair_count,
-            },
+            "symbols": {"AL30": al30_count, "GD30": gd30_count},
+            "pair": {"AL30-GD30": pair_count},
         }
 
     def get_symbol_history(self, symbol: str, limit: int = 2000) -> List[Dict[str, Any]]:
-        symbol = symbol.upper()
-
-        with self._connect() as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = ?",
-                (symbol,),
-            ).fetchone()[0]
-
-        if count == 0 and symbol in self.SUPPORTED_SYMBOLS:
-            try:
-                self.bootstrap_phase1(years=2)
-            except Exception:
-                pass
-
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -473,9 +495,8 @@ class HistoricalPhase1Service:
                 ORDER BY trade_date DESC
                 LIMIT ?
                 """,
-                (symbol, int(limit)),
+                (symbol.upper(), int(limit)),
             ).fetchall()
-
         result = [dict(row) for row in rows]
         result.reverse()
         return result
@@ -496,15 +517,6 @@ class HistoricalPhase1Service:
 
         left_rows = self._load_symbol_rows("AL30")
         right_rows = self._load_symbol_rows("GD30")
-
-        if not left_rows or not right_rows:
-            try:
-                self.bootstrap_phase1(years=2)
-            except Exception:
-                pass
-            left_rows = self._load_symbol_rows("AL30")
-            right_rows = self._load_symbol_rows("GD30")
-
         if not left_rows or not right_rows:
             return []
 
