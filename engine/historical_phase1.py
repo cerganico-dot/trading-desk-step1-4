@@ -61,12 +61,8 @@ class HistoricalPhase1Service:
                 )
                 """
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)")
             conn.commit()
 
     def _parse_date(self, raw: Any) -> Optional[str]:
@@ -91,8 +87,18 @@ class HistoricalPhase1Service:
     def _to_float(self, value: Any) -> Optional[float]:
         if value is None or value == "":
             return None
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        if "," in text and "." in text:
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", ".")
+
         try:
-            return float(str(value).replace(".", "").replace(",", ".")) if isinstance(value, str) and value.count(",") == 1 and value.count(".") >= 1 else float(str(value).replace(",", "."))
+            return float(text)
         except Exception:
             return None
 
@@ -137,17 +143,26 @@ class HistoricalPhase1Service:
             raise ValueError(f"unsupported symbol: {symbol}")
 
         url = self.BASE_URL.format(symbol=symbol)
-        response = requests.get(url, timeout=30)
+        response = requests.get(
+            url,
+            timeout=30,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json,text/plain,*/*",
+            },
+        )
         response.raise_for_status()
-        payload = response.json()
 
+        payload = response.json()
         items: List[Dict[str, Any]] = []
+
         if isinstance(payload, list):
             items = payload
         elif isinstance(payload, dict):
             for key in ["data", "items", "result", "results"]:
-                if isinstance(payload.get(key), list):
-                    items = payload[key]
+                maybe = payload.get(key)
+                if isinstance(maybe, list):
+                    items = maybe
                     break
 
         cutoff = (datetime.utcnow() - timedelta(days=365 * years + 10)).date()
@@ -163,8 +178,8 @@ class HistoricalPhase1Service:
             if trade_date is None or close_price is None:
                 continue
 
-            dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
-            if dt < cutoff:
+            trade_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
+            if trade_dt < cutoff:
                 continue
 
             rows.append(
@@ -219,7 +234,7 @@ class HistoricalPhase1Service:
 
     def _load_symbol_rows(self, symbol: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
-            result = conn.execute(
+            rows = conn.execute(
                 """
                 SELECT symbol, trade_date, open, high, low, close, volume
                 FROM historical_daily_bars
@@ -228,8 +243,7 @@ class HistoricalPhase1Service:
                 """,
                 (symbol.upper(),),
             ).fetchall()
-
-        return [dict(row) for row in result]
+        return [dict(row) for row in rows]
 
     def _rolling_mean(self, values: List[float]) -> float:
         return sum(values) / len(values) if values else 0.0
@@ -247,7 +261,7 @@ class HistoricalPhase1Service:
 
         common_dates = sorted(set(left_map.keys()) & set(right_map.keys()))
         metrics: List[Dict[str, Any]] = []
-        ratios_window: List[float] = []
+        ratio_window: List[float] = []
 
         for trade_date in common_dates:
             left_close = self._to_float(left_map[trade_date]["close"])
@@ -259,8 +273,8 @@ class HistoricalPhase1Service:
             ratio = left_close / right_close
             spread = left_close - right_close
 
-            ratios_window.append(ratio)
-            recent = ratios_window[-20:]
+            ratio_window.append(ratio)
+            recent = ratio_window[-20:]
             mean20 = self._rolling_mean(recent)
             std20 = self._rolling_std(recent)
             zscore_20 = None if std20 == 0 else (ratio - mean20) / std20
@@ -308,15 +322,13 @@ class HistoricalPhase1Service:
                     ],
                 )
             conn.commit()
-
         return len(metrics)
 
     def bootstrap_phase1(self, years: int = 2) -> Dict[str, Any]:
-        counts: Dict[str, int] = {}
-
+        symbol_counts: Dict[str, int] = {}
         for symbol in self.SUPPORTED_SYMBOLS:
             rows = self._fetch_symbol_history(symbol=symbol, years=years)
-            counts[symbol] = self._upsert_symbol_rows(rows)
+            symbol_counts[symbol] = self._upsert_symbol_rows(rows)
 
         left_rows = self._load_symbol_rows("AL30")
         right_rows = self._load_symbol_rows("GD30")
@@ -328,22 +340,16 @@ class HistoricalPhase1Service:
             "years": years,
             "db_path": self.db_path,
             "timezone": self.timezone,
-            "symbols": counts,
+            "symbols": symbol_counts,
             "pair": "AL30-GD30",
             "pair_rows": pair_count,
         }
 
     def status(self) -> Dict[str, Any]:
         with self._connect() as conn:
-            al30_count = conn.execute(
-                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'"
-            ).fetchone()[0]
-            gd30_count = conn.execute(
-                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'"
-            ).fetchone()[0]
-            pair_count = conn.execute(
-                "SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'"
-            ).fetchone()[0]
+            al30_count = conn.execute("SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'").fetchone()[0]
+            gd30_count = conn.execute("SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'").fetchone()[0]
+            pair_count = conn.execute("SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'").fetchone()[0]
 
         return {
             "ok": True,
@@ -360,6 +366,19 @@ class HistoricalPhase1Service:
 
     def get_symbol_history(self, symbol: str, limit: int = 2000) -> List[Dict[str, Any]]:
         symbol = symbol.upper()
+
+        with self._connect() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = ?",
+                (symbol,),
+            ).fetchone()[0]
+
+        if count == 0 and symbol in self.SUPPORTED_SYMBOLS:
+            try:
+                self.bootstrap_phase1(years=2)
+            except Exception:
+                pass
+
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -392,6 +411,15 @@ class HistoricalPhase1Service:
 
         left_rows = self._load_symbol_rows("AL30")
         right_rows = self._load_symbol_rows("GD30")
+
+        if not left_rows or not right_rows:
+            try:
+                self.bootstrap_phase1(years=2)
+            except Exception:
+                pass
+            left_rows = self._load_symbol_rows("AL30")
+            right_rows = self._load_symbol_rows("GD30")
+
         if not left_rows or not right_rows:
             return []
 
@@ -413,32 +441,15 @@ class HistoricalPhase1Service:
 
     def get_pair_history(self, limit: int = 2000) -> List[Dict[str, Any]]:
         metrics = self._rebuild_pair_metrics_if_needed()
-        if metrics:
-            trimmed = metrics[-int(limit):]
-            return [
-                {
-                    "trade_date": row["trade_date"],
-                    "left_close": row["left_close"],
-                    "right_close": row["right_close"],
-                    "ratio": row["ratio"],
-                    "spread": row["spread"],
-                    "zscore_20": row["zscore_20"],
-                }
-                for row in trimmed
-            ]
-
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT trade_date, left_close, right_close, ratio, spread, zscore_20
-                FROM historical_pair_metrics
-                WHERE pair_key = 'AL30-GD30'
-                ORDER BY trade_date DESC
-                LIMIT ?
-                """,
-                (int(limit),),
-            ).fetchall()
-
-        result = [dict(row) for row in rows]
-        result.reverse()
-        return result
+        trimmed = metrics[-int(limit):] if metrics else []
+        return [
+            {
+                "trade_date": row["trade_date"],
+                "left_close": row["left_close"],
+                "right_close": row["right_close"],
+                "ratio": row["ratio"],
+                "spread": row["spread"],
+                "zscore_20": row["zscore_20"],
+            }
+            for row in trimmed
+        ]

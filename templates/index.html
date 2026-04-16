@@ -9,16 +9,17 @@
     :root {
       --bg: #0f172a;
       --panel: #111827;
-      --panel-2: #1f2937;
+      --panel2: #1f2937;
       --line: #374151;
       --text: #e5e7eb;
       --muted: #9ca3af;
-      --ok: #22c55e;
-      --warn: #f59e0b;
       --accent: #60a5fa;
+      --warn: #f59e0b;
+      --ok: #22c55e;
     }
 
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       background: var(--bg);
@@ -29,26 +30,26 @@
     .topbar {
       position: sticky;
       top: 0;
-      z-index: 10;
+      z-index: 20;
       background: #0b1220;
       border-bottom: 1px solid var(--line);
       padding: 14px 16px;
     }
 
-    .topbar-row {
+    .row {
       display: flex;
       gap: 10px;
-      align-items: center;
       flex-wrap: wrap;
+      align-items: center;
     }
 
     .btn {
       border: 1px solid var(--line);
-      background: var(--panel-2);
+      background: var(--panel2);
       color: var(--text);
       padding: 10px 14px;
-      cursor: pointer;
       border-radius: 8px;
+      cursor: pointer;
       font-weight: 700;
     }
 
@@ -58,6 +59,11 @@
       border-color: var(--accent);
     }
 
+    .btn.small {
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+
     #debugMessage {
       margin-top: 10px;
       color: var(--warn);
@@ -65,18 +71,13 @@
     }
 
     .container {
-      max-width: 1400px;
+      max-width: 1500px;
       margin: 0 auto;
       padding: 16px;
     }
 
-    .view {
-      display: none;
-    }
-
-    .view.active {
-      display: block;
-    }
+    .view { display: none; }
+    .view.active { display: block; }
 
     .grid {
       display: grid;
@@ -84,7 +85,7 @@
     }
 
     .grid-2 {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 2fr 1fr;
     }
 
     .card {
@@ -100,6 +101,8 @@
       font-size: 16px;
     }
 
+    .muted { color: var(--muted); }
+
     .state-block {
       white-space: pre-wrap;
       font-family: Consolas, monospace;
@@ -110,7 +113,7 @@
       border: 1px solid var(--line);
       padding: 12px;
       border-radius: 8px;
-      min-height: 160px;
+      min-height: 180px;
     }
 
     .table-wrap {
@@ -122,7 +125,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 900px;
+      min-width: 980px;
     }
 
     th, td {
@@ -138,17 +141,6 @@
       top: 0;
     }
 
-    .muted {
-      color: var(--muted);
-    }
-
-    .info-row {
-      display: flex;
-      gap: 18px;
-      flex-wrap: wrap;
-      font-size: 14px;
-    }
-
     .pill {
       display: inline-block;
       padding: 6px 10px;
@@ -157,14 +149,23 @@
       background: #0b1220;
       font-size: 12px;
       color: var(--text);
+      margin-right: 8px;
+      margin-bottom: 8px;
     }
 
     canvas {
       width: 100% !important;
-      height: 320px !important;
+      height: 340px !important;
     }
 
-    @media (max-width: 1000px) {
+    #livePairButtons,
+    #historicalPairButtons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    @media (max-width: 1100px) {
       .grid-2 {
         grid-template-columns: 1fr;
       }
@@ -173,7 +174,7 @@
 </head>
 <body>
   <div class="topbar">
-    <div class="topbar-row">
+    <div class="row">
       <button id="btnLive" class="btn active" onclick="showView('live')">LIVE</button>
       <button id="btnHistorico" class="btn" onclick="showView('historico')">HISTORICO</button>
     </div>
@@ -182,9 +183,14 @@
 
   <div class="container">
     <section id="view-live" class="view active">
+      <div class="card" style="margin-bottom:16px;">
+        <h3>Ratios LIVE</h3>
+        <div id="livePairButtons"></div>
+      </div>
+
       <div class="grid grid-2">
         <div class="card">
-          <h3>LIVE - ZScore primer par disponible</h3>
+          <h3 id="liveChartTitle">ZScore</h3>
           <canvas id="liveZscoreChart"></canvas>
         </div>
 
@@ -217,9 +223,14 @@
     </section>
 
     <section id="view-historico" class="view">
+      <div class="card" style="margin-bottom:16px;">
+        <h3>Histórico</h3>
+        <div id="historicalPairButtons"></div>
+      </div>
+
       <div class="card">
-        <h3>HISTORICO AL30/GD30</h3>
-        <div id="historyInfo" class="info-row muted"></div>
+        <h3 id="historyHeaderTitle">HISTORICO AL30/GD30</h3>
+        <div id="historyInfo"></div>
       </div>
 
       <div class="card" style="margin-top:16px;">
@@ -239,8 +250,8 @@
             <thead>
               <tr>
                 <th>Trade Date</th>
-                <th>AL30</th>
-                <th>GD30</th>
+                <th>Left</th>
+                <th>Right</th>
                 <th>Ratio</th>
                 <th>Spread</th>
                 <th>ZScore 20</th>
@@ -261,6 +272,20 @@
     let historyRatioChart = null;
     let historyZscoreChart = null;
 
+    let latestState = null;
+    let selectedLivePair = null;
+    let selectedHistoricalPair = "AL30-GD30";
+
+    function pairToKey(pair) {
+      if (Array.isArray(pair) && pair.length === 2) return `${pair[0]}-${pair[1]}`;
+      if (typeof pair === "string") return pair.replace("/", "-").replace("_", "-").toUpperCase();
+      return "";
+    }
+
+    function keyToPretty(key) {
+      return key.replace("-", "/");
+    }
+
     function showView(view) {
       document.getElementById("view-live").classList.remove("active");
       document.getElementById("view-historico").classList.remove("active");
@@ -277,15 +302,15 @@
     }
 
     function destroyChart(chartRef) {
-      if (chartRef) {
-        chartRef.destroy();
-      }
+      if (chartRef) chartRef.destroy();
       return null;
     }
 
     function formatNumber(v, digits = 4) {
-      if (v === null || v === undefined || Number.isNaN(Number(v))) return "";
-      return Number(v).toFixed(digits);
+      if (v === null || v === undefined || v === "") return "";
+      const n = Number(v);
+      if (Number.isNaN(n)) return "";
+      return n.toFixed(digits);
     }
 
     function rollingStats(values, windowSize = 20) {
@@ -294,7 +319,7 @@
       const lower = [];
 
       for (let i = 0; i < values.length; i++) {
-        const slice = values.slice(Math.max(0, i - windowSize + 1), i + 1).filter(v => v !== null && v !== undefined);
+        const slice = values.slice(Math.max(0, i - windowSize + 1), i + 1).filter(v => v !== null && v !== undefined && !Number.isNaN(v));
         if (!slice.length) {
           ma.push(null);
           upper.push(null);
@@ -314,11 +339,75 @@
       return { ma, upper, lower };
     }
 
+    function extractAvailablePairs(data) {
+      const pairs = [];
+      const seen = new Set();
+
+      (data.pairs || []).forEach(pair => {
+        const key = pairToKey(pair);
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          pairs.push(key);
+        }
+      });
+
+      Object.keys(data.zscore_history || {}).forEach(key => {
+        const normalized = pairToKey(key);
+        if (normalized && !seen.has(normalized)) {
+          seen.add(normalized);
+          pairs.push(normalized);
+        }
+      });
+
+      Object.keys(data.ratio_history || {}).forEach(key => {
+        const normalized = pairToKey(key);
+        if (normalized && !seen.has(normalized)) {
+          seen.add(normalized);
+          pairs.push(normalized);
+        }
+      });
+
+      Object.keys(data.ratios || {}).forEach(key => {
+        const normalized = pairToKey(key);
+        if (normalized && !seen.has(normalized)) {
+          seen.add(normalized);
+          pairs.push(normalized);
+        }
+      });
+
+      if (!pairs.length) pairs.push("AL30-GD30");
+      return pairs;
+    }
+
+    function renderLivePairButtons(data) {
+      const container = document.getElementById("livePairButtons");
+      container.innerHTML = "";
+
+      const pairs = extractAvailablePairs(data);
+      if (!selectedLivePair || !pairs.includes(selectedLivePair)) {
+        selectedLivePair = pairs[0];
+      }
+
+      pairs.forEach(key => {
+        const btn = document.createElement("button");
+        btn.className = "btn small" + (key === selectedLivePair ? " active" : "");
+        btn.textContent = keyToPretty(key);
+        btn.onclick = () => {
+          selectedLivePair = key;
+          renderLivePairButtons(latestState);
+          renderLiveChart(latestState);
+        };
+        container.appendChild(btn);
+      });
+    }
+
     async function loadLive() {
       try {
         const res = await fetch("/api/state", { cache: "no-store" });
         const data = await res.json();
+        latestState = data;
 
+        renderLivePairButtons(data);
         renderLiveState(data);
         renderLiveChart(data);
         renderOpportunityLog(data.opportunity_log || []);
@@ -349,24 +438,13 @@
       document.getElementById("liveStateBlock").textContent = JSON.stringify(stateText, null, 2);
     }
 
-    function firstPairKeyFromState(data) {
-      const pairs = data.pairs || [];
-      if (pairs.length && Array.isArray(pairs[0]) && pairs[0].length === 2) {
-        return `${pairs[0][0]}-${pairs[0][1]}`;
-      }
-
-      const zscoreHistory = data.zscore_history || {};
-      const keys = Object.keys(zscoreHistory);
-      if (keys.length) return keys[0];
-
-      return "AL30-GD30";
-    }
-
     function renderLiveChart(data) {
-      const pairKey = firstPairKeyFromState(data);
+      const pairKey = selectedLivePair || extractAvailablePairs(data)[0];
       const zscoreHistory = data.zscore_history || {};
       const seriesTimestamps = data.series_timestamps || data.timestamps || [];
       const values = zscoreHistory[pairKey] || [];
+
+      document.getElementById("liveChartTitle").textContent = `ZScore ${keyToPretty(pairKey)}`;
 
       liveZscoreChart = destroyChart(liveZscoreChart);
       const ctx = document.getElementById("liveZscoreChart").getContext("2d");
@@ -438,6 +516,24 @@
       });
     }
 
+    function renderHistoricalButtons() {
+      const container = document.getElementById("historicalPairButtons");
+      container.innerHTML = "";
+
+      const pairs = ["AL30-GD30"];
+      pairs.forEach(key => {
+        const btn = document.createElement("button");
+        btn.className = "btn small" + (key === selectedHistoricalPair ? " active" : "");
+        btn.textContent = keyToPretty(key);
+        btn.onclick = async () => {
+          selectedHistoricalPair = key;
+          renderHistoricalButtons();
+          await loadHistory();
+        };
+        container.appendChild(btn);
+      });
+    }
+
     async function loadHistory() {
       const debug = document.getElementById("debugMessage");
       debug.textContent = "Cargando histórico...";
@@ -448,6 +544,7 @@
         const rows = data.rows || [];
 
         debug.textContent = `Histórico cargado: ${rows.length} filas`;
+        document.getElementById("historyHeaderTitle").textContent = `HISTORICO ${keyToPretty(selectedHistoricalPair)}`;
 
         renderHistoryInfo(rows);
         renderHistoryCharts(rows);
@@ -459,6 +556,8 @@
 
     function renderHistoryInfo(rows) {
       const info = document.getElementById("historyInfo");
+      info.innerHTML = "";
+
       if (!rows.length) {
         info.innerHTML = `<span class="pill">Sin datos</span>`;
         return;
@@ -468,7 +567,7 @@
       const last = rows[rows.length - 1];
 
       info.innerHTML = `
-        <span class="pill">Par: AL30/GD30</span>
+        <span class="pill">Par: ${keyToPretty(selectedHistoricalPair)}</span>
         <span class="pill">Filas: ${rows.length}</span>
         <span class="pill">Desde: ${first.trade_date}</span>
         <span class="pill">Hasta: ${last.trade_date}</span>
@@ -481,7 +580,6 @@
       const labels = rows.map(r => r.trade_date);
       const ratios = rows.map(r => Number(r.ratio));
       const zscores = rows.map(r => r.zscore_20 === null || r.zscore_20 === undefined ? null : Number(r.zscore_20));
-
       const stats = rollingStats(ratios, 20);
 
       historyRatioChart = destroyChart(historyRatioChart);
@@ -577,6 +675,7 @@
     }
 
     async function init() {
+      renderHistoricalButtons();
       await Promise.all([loadLive(), loadHistory()]);
       setInterval(loadLive, 5000);
     }

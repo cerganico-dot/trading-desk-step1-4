@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,14 +21,20 @@ except Exception:
 
 
 APP_TZ = "America/Argentina/Buenos_Aires"
-DB_PATH = str(Path(__file__).parent / "data" / "trading_desk.db")
-HTML_PATH = Path(__file__).parent / "templates" / "index.html"
+BASE_DIR = Path(__file__).parent
+DB_PATH = str(BASE_DIR / "data" / "trading_desk.db")
+HTML_PATH = BASE_DIR / "templates" / "index.html"
 
-DEFAULT_SYMBOLS = ["AL30", "GD30", "AL30D", "GD30D"]
-DEFAULT_PAIRS = [["AL30", "GD30"], ["AL30D", "GD30D"]]
+DEFAULT_SYMBOLS = ["AL30", "GD30", "AL30D", "GD30D", "AL35", "GD35", "AL41", "GD41"]
+DEFAULT_PAIRS = [
+    ["AL30", "GD30"],
+    ["AL30D", "GD30D"],
+    ["AL35", "GD35"],
+    ["AL41", "GD41"],
+]
 
 
-app = FastAPI(title="Trading Desk Argentino", version="stable-live-historical-base")
+app = FastAPI(title="Trading Desk Argentino", version="stable-live-historical-multipair")
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,6 +74,24 @@ def _pairs_to_strings(pairs: List[List[str]]) -> List[str]:
     return [f"{left}-{right}" for left, right in pairs]
 
 
+def _extract_state_dict(raw: Any) -> Dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if hasattr(raw, "dict") and callable(getattr(raw, "dict")):
+        try:
+            return raw.dict()
+        except Exception:
+            pass
+    if hasattr(raw, "__dict__"):
+        try:
+            return dict(raw.__dict__)
+        except Exception:
+            pass
+    return {}
+
+
 def _call_if_exists(obj: Any, names: List[str], *args: Any, **kwargs: Any) -> Any:
     for name in names:
         fn = getattr(obj, name, None)
@@ -100,31 +124,7 @@ def _ensure_live_desk() -> Any:
     return None
 
 
-def _extract_state_dict(raw: Any) -> Dict[str, Any]:
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if hasattr(raw, "dict") and callable(getattr(raw, "dict")):
-        try:
-            data = raw.dict()
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
-    if hasattr(raw, "__dict__"):
-        try:
-            return dict(raw.__dict__)
-        except Exception:
-            pass
-    return {}
-
-
-def _safe_jsonable(value: Any, default: Any) -> Any:
-    return value if value is not None else default
-
-
-def _build_default_state() -> Dict[str, Any]:
+def _default_state() -> Dict[str, Any]:
     return {
         "mode": "LIVE",
         "timezone": APP_TZ,
@@ -155,7 +155,7 @@ def _build_default_state() -> Dict[str, Any]:
 
 def _get_live_state() -> Dict[str, Any]:
     desk = _ensure_live_desk()
-    state = _build_default_state()
+    state = _default_state()
 
     if desk is None:
         state["notes"] = ["live_desk unavailable"]
@@ -180,8 +180,12 @@ def _get_live_state() -> Dict[str, Any]:
     state["timezone"] = live_state.get("timezone", APP_TZ)
     state["db_path"] = live_state.get("db_path", DB_PATH)
     state["symbols"] = live_state.get("symbols", DEFAULT_SYMBOLS)
-    state["pairs"] = live_state.get("pairs", DEFAULT_PAIRS)
-    state["default_pairs"] = live_state.get("default_pairs", state["pairs"])
+
+    pairs = live_state.get("pairs", DEFAULT_PAIRS)
+    if not pairs:
+        pairs = DEFAULT_PAIRS
+    state["pairs"] = pairs
+    state["default_pairs"] = live_state.get("default_pairs", pairs)
 
     manual_pairs = live_state.get("manual_pairs")
     if manual_pairs is None:
@@ -207,7 +211,7 @@ def _get_live_state() -> Dict[str, Any]:
         "paper_trades",
         "alerts_sent",
     ]:
-        state[key] = _safe_jsonable(live_state.get(key), state[key])
+        state[key] = live_state.get(key, state[key])
 
     if not state["pairs"] and state["manual_pairs"]:
         state["pairs"] = state["manual_pairs"]
@@ -219,7 +223,6 @@ def _apply_manual_pairs_to_live_desk(manual_pairs: List[List[str]]) -> None:
     desk = _ensure_live_desk()
     if desk is None:
         return
-
     _call_if_exists(
         desk,
         ["set_manual_pairs", "update_manual_pairs", "set_pairs", "configure_pairs"],
@@ -279,14 +282,12 @@ def api_validate_pairs(pair: List[str] = Query(default=[])) -> Dict[str, Any]:
         if normalized is None:
             errors.append(f"invalid pair: {item}")
             continue
-
         if normalized[0] == normalized[1]:
             errors.append(f"duplicate symbols in pair: {item}")
             continue
-
         parsed.append(normalized)
 
-    unique = []
+    unique: List[List[str]] = []
     seen = set()
     for left, right in parsed:
         key = f"{left}-{right}"
@@ -336,15 +337,15 @@ def api_delete_pairs(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     if not isinstance(raw_pairs, list):
         raise HTTPException(status_code=400, detail="pairs must be a list")
 
-    to_remove = set()
+    remove_set = set()
     for item in raw_pairs:
         normalized = _normalize_pair_item(item)
         if normalized is None:
             continue
-        to_remove.add(f"{normalized[0]}-{normalized[1]}")
+        remove_set.add(f"{normalized[0]}-{normalized[1]}")
 
     current: List[List[str]] = list(getattr(app.state, "manual_pairs", []))
-    filtered = [[left, right] for left, right in current if f"{left}-{right}" not in to_remove]
+    filtered = [[left, right] for left, right in current if f"{left}-{right}" not in remove_set]
 
     app.state.manual_pairs = filtered
     _apply_manual_pairs_to_live_desk(filtered)
