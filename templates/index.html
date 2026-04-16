@@ -1,686 +1,380 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Trading Desk Argentino</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root {
-      --bg: #0f172a;
-      --panel: #111827;
-      --panel2: #1f2937;
-      --line: #374151;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #60a5fa;
-      --warn: #f59e0b;
-      --ok: #22c55e;
-    }
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Trading Desk</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Arial, Helvetica, sans-serif;
-    }
-
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      background: #0b1220;
-      border-bottom: 1px solid var(--line);
-      padding: 14px 16px;
-    }
-
-    .row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .btn {
-      border: 1px solid var(--line);
-      background: var(--panel2);
-      color: var(--text);
-      padding: 10px 14px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 700;
-    }
-
-    .btn.active {
-      background: var(--accent);
-      color: #08111f;
-      border-color: var(--accent);
-    }
-
-    .btn.small {
-      padding: 8px 12px;
-      font-size: 12px;
-    }
-
-    #debugMessage {
-      margin-top: 10px;
-      color: var(--warn);
-      font-weight: 700;
-    }
-
-    .container {
-      max-width: 1500px;
-      margin: 0 auto;
-      padding: 16px;
-    }
-
-    .view { display: none; }
-    .view.active { display: block; }
-
-    .grid {
-      display: grid;
-      gap: 16px;
-    }
-
-    .grid-2 {
-      grid-template-columns: 2fr 1fr;
-    }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 14px;
-      overflow: hidden;
-    }
-
-    .card h3 {
-      margin: 0 0 12px 0;
-      font-size: 16px;
-    }
-
-    .muted { color: var(--muted); }
-
-    .state-block {
-      white-space: pre-wrap;
-      font-family: Consolas, monospace;
-      font-size: 13px;
-      line-height: 1.4;
-      color: #d1d5db;
-      background: #0b1220;
-      border: 1px solid var(--line);
-      padding: 12px;
-      border-radius: 8px;
-      min-height: 180px;
-    }
-
-    .table-wrap {
-      overflow: auto;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 980px;
-    }
-
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 8px 10px;
-      text-align: left;
-      font-size: 13px;
-    }
-
-    th {
-      background: #0b1220;
-      position: sticky;
-      top: 0;
-    }
-
-    .pill {
-      display: inline-block;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: #0b1220;
-      font-size: 12px;
-      color: var(--text);
-      margin-right: 8px;
-      margin-bottom: 8px;
-    }
-
-    canvas {
-      width: 100% !important;
-      height: 340px !important;
-    }
-
-    #livePairButtons,
-    #historicalPairButtons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    @media (max-width: 1100px) {
-      .grid-2 {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+<style>
+body { background:#0f172a; color:#e2e8f0; font-family:Arial; margin:0; }
+.wrap { padding:20px; max-width:1400px; margin:auto; }
+.card { background:#111827; padding:16px; border-radius:12px; margin-bottom:16px; }
+button { padding:10px; border-radius:8px; border:none; cursor:pointer; margin-right:8px; }
+.mode-btn { background:#1f2937; color:#fff; }
+.mode-btn.active { background:#2563eb; }
+.table { width:100%; border-collapse:collapse; }
+.table th, .table td { padding:6px; border-bottom:1px solid #333; text-align:left; }
+#debug { margin: 8px 0 16px 0; color:#fca5a5; }
+.kpis { line-height: 1.8; }
+.controls-row { margin-bottom: 16px; }
+input, select {
+  background:#0b1220;
+  color:#e2e8f0;
+  border:1px solid #334155;
+  border-radius:8px;
+  padding:8px;
+  margin-right:8px;
+}
+</style>
 </head>
+
 <body>
-  <div class="topbar">
-    <div class="row">
-      <button id="btnLive" class="btn active" onclick="showView('live')">LIVE</button>
-      <button id="btnHistorico" class="btn" onclick="showView('historico')">HISTORICO</button>
-    </div>
-    <div id="debugMessage">Cargando histórico...</div>
+<div class="wrap">
+
+<h1>Trading Desk</h1>
+<div id="debug"></div>
+
+<div class="controls-row">
+  <button class="mode-btn active" onclick="setView('live')" id="btnLive">LIVE</button>
+  <button class="mode-btn" onclick="setView('backtest')" id="btnBT">BACKTEST</button>
+</div>
+
+<div id="liveView">
+  <div class="card">
+    <h3>ZScore</h3>
+    <div id="liveChart" style="height:420px;"></div>
   </div>
 
-  <div class="container">
-    <section id="view-live" class="view active">
-      <div class="card" style="margin-bottom:16px;">
-        <h3>Ratios LIVE</h3>
-        <div id="livePairButtons"></div>
-      </div>
-
-      <div class="grid grid-2">
-        <div class="card">
-          <h3 id="liveChartTitle">ZScore</h3>
-          <canvas id="liveZscoreChart"></canvas>
-        </div>
-
-        <div class="card">
-          <h3>Estado</h3>
-          <div id="liveStateBlock" class="state-block"></div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:16px;">
-        <h3>Opportunity Log</h3>
-        <div class="table-wrap">
-          <table id="liveOpportunityTable">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Timestamp</th>
-                <th>Pair</th>
-                <th>Signal</th>
-                <th>ZScore</th>
-                <th>Ratio</th>
-                <th>Spread</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-historico" class="view">
-      <div class="card" style="margin-bottom:16px;">
-        <h3>Histórico</h3>
-        <div id="historicalPairButtons"></div>
-      </div>
-
-      <div class="card">
-        <h3 id="historyHeaderTitle">HISTORICO AL30/GD30</h3>
-        <div id="historyInfo"></div>
-      </div>
-
-      <div class="card" style="margin-top:16px;">
-        <h3>Ratio + Media Móvil 20 + Bollinger Bands</h3>
-        <canvas id="historyRatioChart"></canvas>
-      </div>
-
-      <div class="card" style="margin-top:16px;">
-        <h3>ZScore 20</h3>
-        <canvas id="historyZscoreChart"></canvas>
-      </div>
-
-      <div class="card" style="margin-top:16px;">
-        <h3>Tabla histórica</h3>
-        <div class="table-wrap">
-          <table id="historyTable">
-            <thead>
-              <tr>
-                <th>Trade Date</th>
-                <th>Left</th>
-                <th>Right</th>
-                <th>Ratio</th>
-                <th>Spread</th>
-                <th>ZScore 20</th>
-                <th>MA20</th>
-                <th>Upper BB</th>
-                <th>Lower BB</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+  <div class="card">
+    <h3>Estado</h3>
+    <div id="liveInfo"></div>
   </div>
 
-  <script>
-    let liveZscoreChart = null;
-    let historyRatioChart = null;
-    let historyZscoreChart = null;
+  <div class="card">
+    <h3>Oportunidades</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Hora</th>
+          <th>Par</th>
+          <th>Operación</th>
+          <th>Z</th>
+          <th>Edge</th>
+          <th>Filtro</th>
+        </tr>
+      </thead>
+      <tbody id="liveLog"></tbody>
+    </table>
+  </div>
+</div>
 
-    let latestState = null;
-    let selectedLivePair = null;
-    let selectedHistoricalPair = "AL30-GD30";
+<div id="backtestView" style="display:none">
 
-    function pairToKey(pair) {
-      if (Array.isArray(pair) && pair.length === 2) return `${pair[0]}-${pair[1]}`;
-      if (typeof pair === "string") return pair.replace("/", "-").replace("_", "-").toUpperCase();
-      return "";
+  <div class="card">
+    <h3>Parámetros</h3>
+
+    Entry Z:
+    <select id="entryZ">
+      <option>1.5</option>
+      <option selected>2.0</option>
+      <option>2.5</option>
+      <option>3.0</option>
+    </select>
+
+    Exit Z:
+    <select id="exitZ">
+      <option selected>0</option>
+      <option>0.5</option>
+      <option>1.0</option>
+    </select>
+
+    Capital:
+    <input id="capital" value="1000000"/>
+
+    Cost:
+    <input id="cost" value="0.003"/>
+
+<button onclick="runBacktest()">RUN</button>
+<button onclick="runOptimizer()">OPTIMIZER</button>
+
+  </div>
+
+  <div class="card">
+    <h3>Métricas</h3>
+    <div id="metrics" class="kpis"></div>
+  </div>
+
+  <div class="card">
+    <h3>Optimizer</h3>
+    <div id="optimizer"></div>
+  </div>
+
+  <div class="card">
+    <h3>Equity</h3>
+    <div id="equityChart" style="height:420px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Trades</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>Side</th>
+          <th>Entry Z</th>
+          <th>Exit Z</th>
+          <th>Entry Ratio</th>
+          <th>Exit Ratio</th>
+          <th>PnL Ratio</th>
+          <th>PnL $</th>
+        </tr>
+      </thead>
+      <tbody id="trades"></tbody>
+    </table>
+  </div>
+
+</div>
+
+</div>
+
+<script>
+let view = 'live';
+
+function setView(v){
+  view = v;
+  document.getElementById('liveView').style.display = v === 'live' ? 'block' : 'none';
+  document.getElementById('backtestView').style.display = v === 'backtest' ? 'block' : 'none';
+  document.getElementById('btnLive').classList.toggle('active', v === 'live');
+  document.getElementById('btnBT').classList.toggle('active', v === 'backtest');
+}
+
+function fmt(n, d=4){
+  if(n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
+  return Number(n).toLocaleString('es-AR', { maximumFractionDigits:d });
+}
+
+async function loadLive(){
+  try {
+    const r = await fetch('/api/state');
+    const j = await r.json();
+
+    const keys = Object.keys(j.zscore_history || {});
+    if (!keys.length) {
+      document.getElementById('debug').innerText = 'Sin zscore_history en /api/state';
+      return;
     }
 
-    function keyToPretty(key) {
-      return key.replace("-", "/");
+    const pair = keys[0];
+    const y = j.zscore_history[pair] || [];
+    const x = j.series_timestamps || [];
+
+    Plotly.newPlot('liveChart', [{
+      x, y, type:'scatter', mode:'lines+markers', name:pair
+    }], {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e2e8f0' },
+      margin:{ t:20, r:20, b:40, l:50 }
+    }, {responsive:true});
+
+    document.getElementById('liveInfo').innerHTML = `
+      <b>Modo:</b> ${j.mode || '-'}<br>
+      <b>Timezone:</b> ${j.timezone || '-'}<br>
+      <b>DB:</b> ${j.db_path || '-'}<br>
+      <b>Pares:</b> ${(j.pairs || []).join(', ')}
+    `;
+
+    renderLiveLog(j.opportunity_log || []);
+    document.getElementById('debug').innerText = '';
+  } catch (e) {
+    document.getElementById('debug').innerText = 'Error cargando LIVE';
+  }
+}
+
+function renderLiveLog(rows){
+  const tbody = document.getElementById('liveLog');
+  tbody.innerHTML = '';
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6">Sin datos</td></tr>`;
+    return;
+  }
+
+  rows.slice().reverse().forEach(item => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${item.time || '-'}</td>
+        <td>${item.pair || '-'}</td>
+        <td>${item.signal || '-'}</td>
+        <td>${fmt(item.zscore,4)}</td>
+        <td>${fmt(item.edge_bps,2)}</td>
+        <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
+      </tr>
+    `;
+  });
+}
+
+async function runBacktest(){
+  try {
+    const entry = document.getElementById('entryZ').value;
+    const exit = document.getElementById('exitZ').value;
+    const cap = document.getElementById('capital').value;
+    const cost = document.getElementById('cost').value;
+
+    const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`;
+    const r = await fetch(url);
+    const j = await r.json();
+
+    if (!r.ok || (j.ok === false)) {
+      document.getElementById('debug').innerText = j.error || 'Error de backtest';
+      return;
     }
 
-    function showView(view) {
-      document.getElementById("view-live").classList.remove("active");
-      document.getElementById("view-historico").classList.remove("active");
-      document.getElementById("btnLive").classList.remove("active");
-      document.getElementById("btnHistorico").classList.remove("active");
+    renderMetrics(j.metrics || {});
+    renderEquity(j.equity_curve || []);
+    renderTrades(j.trades || []);
+    document.getElementById('debug').innerText = '';
+  } catch (e) {
+    document.getElementById('debug').innerText = 'Error corriendo backtest';
+  }
+}
 
-      if (view === "live") {
-        document.getElementById("view-live").classList.add("active");
-        document.getElementById("btnLive").classList.add("active");
-      } else {
-        document.getElementById("view-historico").classList.add("active");
-        document.getElementById("btnHistorico").classList.add("active");
+function renderMetrics(m){
+  document.getElementById('metrics').innerHTML = `
+    <b>PnL:</b> ${fmt(m.total_pnl,2)}<br>
+    <b>Return:</b> ${fmt(m.total_return_pct,2)}%<br>
+    <b>Win Rate:</b> ${fmt((m.win_rate || 0) * 100,2)}%<br>
+    <b>Profit Factor:</b> ${fmt(m.profit_factor,2)}<br>
+    <b>Drawdown:</b> ${fmt(m.max_drawdown,2)}<br>
+    <b>Avg Trade:</b> ${fmt(m.avg_trade,2)}<br>
+    <b>Trades:</b> ${fmt(m.trades,0)}
+  `;
+}
+
+function renderEquity(eq){
+  Plotly.newPlot('equityChart', [{
+    x: eq.map(e => e.date),
+    y: eq.map(e => e.equity),
+    type:'scatter',
+    mode:'lines',
+    name:'Equity'
+  }], {
+    paper_bgcolor:'#111827',
+    plot_bgcolor:'#111827',
+    font:{ color:'#e2e8f0' },
+    margin:{ t:20, r:20, b:40, l:50 }
+  }, {responsive:true});
+}
+
+function renderTrades(tr){
+  const tbody = document.getElementById('trades');
+  tbody.innerHTML = '';
+
+  if (!tr.length) {
+    tbody.innerHTML = `<tr><td colspan="9">Sin trades</td></tr>`;
+    return;
+  }
+
+  tr.forEach(t => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${t.entry_date || '-'}</td>
+        <td>${t.exit_date || '-'}</td>
+        <td>${t.side || '-'}</td>
+        <td>${fmt(t.entry_z,4)}</td>
+        <td>${fmt(t.exit_z,4)}</td>
+        <td>${fmt(t.entry_ratio,8)}</td>
+        <td>${fmt(t.exit_ratio,8)}</td>
+        <td>${fmt(t.pnl_ratio,6)}</td>
+        <td>${fmt(t.pnl_money,2)}</td>
+      </tr>
+    `;
+  });
+}
+
+async function runOptimizer(){
+  try {
+    const cap = document.getElementById('capital').value;
+    const cost = document.getElementById('cost').value;
+
+    let results = [];
+
+    for (const entry of [1.5, 2, 2.5, 3]) {
+      for (const exit of [0, 0.5, 1]) {
+        const url = `/api/history/backtest/al30-gd30?entry_z=${entry}&exit_z=${exit}&capital=${cap}&cost=${cost}`;
+        const r = await fetch(url);
+        const j = await r.json();
+
+        if (!r.ok || (j.ok === false)) continue;
+
+        const m = j.metrics || {};
+        const score = (Number(m.profit_factor) || 0) / (1 + Math.abs(Number(m.max_drawdown) || 0));
+
+        results.push({
+          entry,
+          exit,
+          pnl: Number(m.total_pnl) || 0,
+          pf: Number(m.profit_factor) || 0,
+          dd: Number(m.max_drawdown) || 0,
+          wr: Number(m.win_rate) || 0,
+          trades: Number(m.trades) || 0,
+          score
+        });
       }
     }
 
-    function destroyChart(chartRef) {
-      if (chartRef) chartRef.destroy();
-      return null;
-    }
+    results.sort((a,b) => b.score - a.score);
+    renderOptimizer(results);
+    document.getElementById('debug').innerText = '';
+  } catch (e) {
+    document.getElementById('debug').innerText = 'Error corriendo optimizer';
+  }
+}
 
-    function formatNumber(v, digits = 4) {
-      if (v === null || v === undefined || v === "") return "";
-      const n = Number(v);
-      if (Number.isNaN(n)) return "";
-      return n.toFixed(digits);
-    }
+function renderOptimizer(res){
+  const box = document.getElementById('optimizer');
 
-    function rollingStats(values, windowSize = 20) {
-      const ma = [];
-      const upper = [];
-      const lower = [];
+  if (!res.length) {
+    box.innerHTML = 'Sin resultados';
+    return;
+  }
 
-      for (let i = 0; i < values.length; i++) {
-        const slice = values.slice(Math.max(0, i - windowSize + 1), i + 1).filter(v => v !== null && v !== undefined && !Number.isNaN(v));
-        if (!slice.length) {
-          ma.push(null);
-          upper.push(null);
-          lower.push(null);
-          continue;
-        }
+  let html = `<table class="table">
+    <thead>
+      <tr>
+        <th>Entry</th>
+        <th>Exit</th>
+        <th>Score</th>
+        <th>PF</th>
+        <th>DD</th>
+        <th>WR</th>
+        <th>Trades</th>
+        <th>PnL</th>
+      </tr>
+    </thead>
+    <tbody>`;
 
-        const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
-        const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / slice.length;
-        const std = Math.sqrt(variance);
+  res.forEach(r => {
+    html += `<tr>
+      <td>${r.entry}</td>
+      <td>${r.exit}</td>
+      <td>${fmt(r.score,4)}</td>
+      <td>${fmt(r.pf,2)}</td>
+      <td>${fmt(r.dd,2)}</td>
+      <td>${fmt(r.wr * 100,2)}%</td>
+      <td>${fmt(r.trades,0)}</td>
+      <td>${fmt(r.pnl,0)}</td>
+    </tr>`;
+  });
 
-        ma.push(mean);
-        upper.push(mean + 2 * std);
-        lower.push(mean - 2 * std);
-      }
+  html += `</tbody></table>`;
+  box.innerHTML = html;
+}
 
-      return { ma, upper, lower };
-    }
+loadLive();
+</script>
 
-    function extractAvailablePairs(data) {
-      const pairs = [];
-      const seen = new Set();
-
-      (data.pairs || []).forEach(pair => {
-        const key = pairToKey(pair);
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          pairs.push(key);
-        }
-      });
-
-      Object.keys(data.zscore_history || {}).forEach(key => {
-        const normalized = pairToKey(key);
-        if (normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          pairs.push(normalized);
-        }
-      });
-
-      Object.keys(data.ratio_history || {}).forEach(key => {
-        const normalized = pairToKey(key);
-        if (normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          pairs.push(normalized);
-        }
-      });
-
-      Object.keys(data.ratios || {}).forEach(key => {
-        const normalized = pairToKey(key);
-        if (normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          pairs.push(normalized);
-        }
-      });
-
-      if (!pairs.length) pairs.push("AL30-GD30");
-      return pairs;
-    }
-
-    function renderLivePairButtons(data) {
-      const container = document.getElementById("livePairButtons");
-      container.innerHTML = "";
-
-      const pairs = extractAvailablePairs(data);
-      if (!selectedLivePair || !pairs.includes(selectedLivePair)) {
-        selectedLivePair = pairs[0];
-      }
-
-      pairs.forEach(key => {
-        const btn = document.createElement("button");
-        btn.className = "btn small" + (key === selectedLivePair ? " active" : "");
-        btn.textContent = keyToPretty(key);
-        btn.onclick = () => {
-          selectedLivePair = key;
-          renderLivePairButtons(latestState);
-          renderLiveChart(latestState);
-        };
-        container.appendChild(btn);
-      });
-    }
-
-    async function loadLive() {
-      try {
-        const res = await fetch("/api/state", { cache: "no-store" });
-        const data = await res.json();
-        latestState = data;
-
-        renderLivePairButtons(data);
-        renderLiveState(data);
-        renderLiveChart(data);
-        renderOpportunityLog(data.opportunity_log || []);
-      } catch (err) {
-        document.getElementById("liveStateBlock").textContent = "Error cargando LIVE: " + err;
-      }
-    }
-
-    function renderLiveState(data) {
-      const stateText = {
-        mode: data.mode,
-        timezone: data.timezone,
-        db_path: data.db_path,
-        symbols: data.symbols,
-        pairs: data.pairs,
-        manual_pairs: data.manual_pairs,
-        quotes_count: Object.keys(data.quotes || {}).length,
-        ratios_count: Object.keys(data.ratios || {}).length,
-        zscores_count: Object.keys(data.zscores || {}).length,
-        pair_signals_count: Object.keys(data.pair_signals || {}).length,
-        opportunity_log_count: (data.opportunity_log || []).length,
-        paper_positions_count: (data.paper_positions || []).length,
-        paper_events_count: (data.paper_events || []).length,
-        paper_trades_count: (data.paper_trades || []).length,
-        alerts_sent_count: (data.alerts_sent || []).length
-      };
-
-      document.getElementById("liveStateBlock").textContent = JSON.stringify(stateText, null, 2);
-    }
-
-    function renderLiveChart(data) {
-      const pairKey = selectedLivePair || extractAvailablePairs(data)[0];
-      const zscoreHistory = data.zscore_history || {};
-      const seriesTimestamps = data.series_timestamps || data.timestamps || [];
-      const values = zscoreHistory[pairKey] || [];
-
-      document.getElementById("liveChartTitle").textContent = `ZScore ${keyToPretty(pairKey)}`;
-
-      liveZscoreChart = destroyChart(liveZscoreChart);
-      const ctx = document.getElementById("liveZscoreChart").getContext("2d");
-
-      liveZscoreChart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: seriesTimestamps.length ? seriesTimestamps.slice(-values.length) : values.map((_, i) => String(i + 1)),
-          datasets: [
-            {
-              label: `ZScore ${pairKey}`,
-              data: values,
-              borderWidth: 2,
-              tension: 0.15
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } }
-          },
-          scales: {
-            x: {
-              ticks: { color: "#9ca3af", maxTicksLimit: 12 },
-              grid: { color: "#374151" }
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "#374151" }
-            }
-          }
-        }
-      });
-    }
-
-    function renderOpportunityLog(rows) {
-      const tbody = document.querySelector("#liveOpportunityTable tbody");
-      tbody.innerHTML = "";
-
-      const list = Array.isArray(rows) ? rows.slice().reverse() : [];
-      if (!list.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="muted">Sin datos</td></tr>`;
-        return;
-      }
-
-      list.forEach((row, idx) => {
-        const tr = document.createElement("tr");
-        const timestamp = row.timestamp || row.ts || row.time || "";
-        const pair = row.pair || row.pair_key || "";
-        const signal = row.signal || row.action || "";
-        const zscore = row.zscore ?? row.z_score ?? "";
-        const ratio = row.ratio ?? "";
-        const spread = row.spread ?? "";
-        const note = row.note || row.message || "";
-
-        tr.innerHTML = `
-          <td>${idx + 1}</td>
-          <td>${timestamp}</td>
-          <td>${pair}</td>
-          <td>${signal}</td>
-          <td>${formatNumber(zscore, 4)}</td>
-          <td>${formatNumber(ratio, 6)}</td>
-          <td>${formatNumber(spread, 6)}</td>
-          <td>${note}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    function renderHistoricalButtons() {
-      const container = document.getElementById("historicalPairButtons");
-      container.innerHTML = "";
-
-      const pairs = ["AL30-GD30"];
-      pairs.forEach(key => {
-        const btn = document.createElement("button");
-        btn.className = "btn small" + (key === selectedHistoricalPair ? " active" : "");
-        btn.textContent = keyToPretty(key);
-        btn.onclick = async () => {
-          selectedHistoricalPair = key;
-          renderHistoricalButtons();
-          await loadHistory();
-        };
-        container.appendChild(btn);
-      });
-    }
-
-    async function loadHistory() {
-      const debug = document.getElementById("debugMessage");
-      debug.textContent = "Cargando histórico...";
-
-      try {
-        const res = await fetch("/api/history/phase1/al30-gd30?limit=2000", { cache: "no-store" });
-        const data = await res.json();
-        const rows = data.rows || [];
-
-        debug.textContent = `Histórico cargado: ${rows.length} filas`;
-        document.getElementById("historyHeaderTitle").textContent = `HISTORICO ${keyToPretty(selectedHistoricalPair)}`;
-
-        renderHistoryInfo(rows);
-        renderHistoryCharts(rows);
-        renderHistoryTable(rows);
-      } catch (err) {
-        debug.textContent = "Error cargando histórico: " + err;
-      }
-    }
-
-    function renderHistoryInfo(rows) {
-      const info = document.getElementById("historyInfo");
-      info.innerHTML = "";
-
-      if (!rows.length) {
-        info.innerHTML = `<span class="pill">Sin datos</span>`;
-        return;
-      }
-
-      const first = rows[0];
-      const last = rows[rows.length - 1];
-
-      info.innerHTML = `
-        <span class="pill">Par: ${keyToPretty(selectedHistoricalPair)}</span>
-        <span class="pill">Filas: ${rows.length}</span>
-        <span class="pill">Desde: ${first.trade_date}</span>
-        <span class="pill">Hasta: ${last.trade_date}</span>
-        <span class="pill">Último Ratio: ${formatNumber(last.ratio, 6)}</span>
-        <span class="pill">Último ZScore20: ${formatNumber(last.zscore_20, 4)}</span>
-      `;
-    }
-
-    function renderHistoryCharts(rows) {
-      const labels = rows.map(r => r.trade_date);
-      const ratios = rows.map(r => Number(r.ratio));
-      const zscores = rows.map(r => r.zscore_20 === null || r.zscore_20 === undefined ? null : Number(r.zscore_20));
-      const stats = rollingStats(ratios, 20);
-
-      historyRatioChart = destroyChart(historyRatioChart);
-      historyZscoreChart = destroyChart(historyZscoreChart);
-
-      const ratioCtx = document.getElementById("historyRatioChart").getContext("2d");
-      historyRatioChart = new Chart(ratioCtx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            { label: "Ratio", data: ratios, borderWidth: 2, tension: 0.12 },
-            { label: "MA20", data: stats.ma, borderWidth: 1.5, tension: 0.12 },
-            { label: "Upper BB", data: stats.upper, borderWidth: 1, tension: 0.12 },
-            { label: "Lower BB", data: stats.lower, borderWidth: 1, tension: 0.12 }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } }
-          },
-          scales: {
-            x: {
-              ticks: { color: "#9ca3af", maxTicksLimit: 18 },
-              grid: { color: "#374151" }
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "#374151" }
-            }
-          }
-        }
-      });
-
-      const zCtx = document.getElementById("historyZscoreChart").getContext("2d");
-      historyZscoreChart = new Chart(zCtx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            { label: "ZScore 20", data: zscores, borderWidth: 2, tension: 0.12 }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } }
-          },
-          scales: {
-            x: {
-              ticks: { color: "#9ca3af", maxTicksLimit: 18 },
-              grid: { color: "#374151" }
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "#374151" }
-            }
-          }
-        }
-      });
-    }
-
-    function renderHistoryTable(rows) {
-      const tbody = document.querySelector("#historyTable tbody");
-      tbody.innerHTML = "";
-
-      if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="9" class="muted">Sin datos</td></tr>`;
-        return;
-      }
-
-      const ratios = rows.map(r => Number(r.ratio));
-      const stats = rollingStats(ratios, 20);
-
-      rows.forEach((row, i) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.trade_date}</td>
-          <td>${formatNumber(row.left_close, 4)}</td>
-          <td>${formatNumber(row.right_close, 4)}</td>
-          <td>${formatNumber(row.ratio, 6)}</td>
-          <td>${formatNumber(row.spread, 6)}</td>
-          <td>${formatNumber(row.zscore_20, 4)}</td>
-          <td>${formatNumber(stats.ma[i], 6)}</td>
-          <td>${formatNumber(stats.upper[i], 6)}</td>
-          <td>${formatNumber(stats.lower[i], 6)}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    async function init() {
-      renderHistoricalButtons();
-      await Promise.all([loadLive(), loadHistory()]);
-      setInterval(loadLive, 5000);
-    }
-
-    init();
-  </script>
 </body>
 </html>
