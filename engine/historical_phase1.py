@@ -4,18 +4,24 @@ import importlib
 import inspect
 import json
 import math
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import requests
+
 
 class HistoricalPhase1Service:
-    PUBLIC_URL = "https://iol.invertironline.com/titulo/datoshistoricos?mercado=bcba&simbolo={symbol}"
+    TOKEN_URL = "https://api.invertironline.com/token"
+    ACCOUNT_URL = "https://api.invertironline.com/api/v2/estadocuenta"
     API_URL_CANDIDATES = [
         "https://api.invertironline.com/api/v2/bCBA/Titulos/{symbol}/Cotizacion/historica",
         "https://api.invertironline.com/api/v2/bCBA/Titulos/{symbol}/cotizacion/historica",
         "https://api.invertironline.com/api/v2/bcba/titulos/{symbol}/cotizacion/historica",
+        "https://api.invertironline.com/api/v2/Cotizaciones/titulos/{symbol}/historica?mercado=bCBA",
+        "https://api.invertironline.com/api/v2/Cotizaciones/Titulos/{symbol}/historica?mercado=bCBA",
     ]
     SUPPORTED_SYMBOLS = ["AL30", "GD30"]
 
@@ -24,6 +30,7 @@ class HistoricalPhase1Service:
         self.timezone = timezone
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._provider = self._load_provider()
+        self._token_cache: Optional[Dict[str, Any]] = None
         self._init_db()
 
     def _load_provider(self) -> Any:
@@ -123,7 +130,7 @@ class HistoricalPhase1Service:
         if isinstance(payload, list):
             return [x for x in payload if isinstance(x, dict)]
         if isinstance(payload, dict):
-            for key in ["data", "items", "result", "results", "serie", "historicos", "cotizaciones"]:
+            for key in ["data", "items", "result", "results", "serie", "historicos", "cotizaciones", "titulos"]:
                 value = payload.get(key)
                 if isinstance(value, list):
                     return [x for x in value if isinstance(x, dict)]
@@ -152,20 +159,15 @@ class HistoricalPhase1Service:
             if dt < cutoff:
                 continue
 
-            open_price = self._extract_first_float(item, ["apertura", "open", "precioApertura"])
-            high_price = self._extract_first_float(item, ["maximo", "high", "precioMaximo"])
-            low_price = self._extract_first_float(item, ["minimo", "low", "precioMinimo"])
-            volume = self._extract_first_float(item, ["volumenNominal", "volumen", "volume", "volumenOperado"])
-
             rows.append(
                 {
                     "symbol": symbol,
                     "trade_date": trade_date,
-                    "open": open_price,
-                    "high": high_price,
-                    "low": low_price,
+                    "open": self._extract_first_float(item, ["apertura", "open", "precioApertura"]),
+                    "high": self._extract_first_float(item, ["maximo", "high", "precioMaximo"]),
+                    "low": self._extract_first_float(item, ["minimo", "low", "precioMinimo"]),
                     "close": close_price,
-                    "volume": volume,
+                    "volume": self._extract_first_float(item, ["volumenNominal", "volumen", "volume", "volumenOperado"]),
                 }
             )
 
@@ -280,7 +282,7 @@ class HistoricalPhase1Service:
             return None
 
         headers = {"Accept": "application/json,text/plain,*/*"}
-        for url_tpl in self.API_URL_CANDIDATES + [self.PUBLIC_URL]:
+        for url_tpl in self.API_URL_CANDIDATES:
             url = url_tpl.format(symbol=symbol)
             try:
                 response = session.get(url, timeout=30, headers=headers)
@@ -289,12 +291,93 @@ class HistoricalPhase1Service:
             except Exception:
                 continue
 
-            text = getattr(response, "text", "")
             status_code = getattr(response, "status_code", 200)
+            text = getattr(response, "text", "")
 
             if status_code >= 400:
                 continue
             if isinstance(text, str) and "<html" in text.lower():
+                continue
+
+            try:
+                return response.json()
+            except Exception:
+                try:
+                    return json.loads(text)
+                except Exception:
+                    continue
+
+        return None
+
+    def _get_env_credentials(self) -> Dict[str, str]:
+        username = (
+            os.getenv("IOL_USERNAME")
+            or os.getenv("IOL_USER")
+            or os.getenv("INVERTIRONLINE_USERNAME")
+            or os.getenv("INVEST_USERNAME")
+            or ""
+        ).strip()
+
+        password = (
+            os.getenv("IOL_PASSWORD")
+            or os.getenv("IOL_PASS")
+            or os.getenv("INVERTIRONLINE_PASSWORD")
+            or os.getenv("INVEST_PASSWORD")
+            or ""
+        ).strip()
+
+        return {"username": username, "password": password}
+
+    def _get_direct_token(self) -> Optional[str]:
+        if self._token_cache and self._token_cache.get("access_token"):
+            return str(self._token_cache["access_token"])
+
+        creds = self._get_env_credentials()
+        if not creds["username"] or not creds["password"]:
+            return None
+
+        response = requests.post(
+            self.TOKEN_URL,
+            timeout=30,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "username": creds["username"],
+                "password": creds["password"],
+                "grant_type": "password",
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        access_token = payload.get("access_token")
+        if not access_token:
+            return None
+
+        self._token_cache = payload
+        return str(access_token)
+
+    def _fetch_from_direct_api(self, symbol: str) -> Optional[Any]:
+        token = self._get_direct_token()
+        if not token:
+            return None
+
+        auth_headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json,text/plain,*/*",
+        }
+
+        probe = requests.get(self.ACCOUNT_URL, timeout=30, headers=auth_headers)
+        if probe.status_code >= 400:
+            return None
+
+        for url_tpl in self.API_URL_CANDIDATES:
+            url = url_tpl.format(symbol=symbol)
+            response = requests.get(url, timeout=30, headers=auth_headers)
+            if response.status_code >= 400:
+                continue
+
+            text = response.text
+            if "<html" in text.lower():
                 continue
 
             try:
@@ -316,7 +399,11 @@ class HistoricalPhase1Service:
         if payload is not None:
             return payload
 
-        raise ValueError("IOL provider unavailable for authenticated historical fetch")
+        payload = self._fetch_from_direct_api(symbol=symbol)
+        if payload is not None:
+            return payload
+
+        raise ValueError("IOL authenticated historical fetch unavailable")
 
     def _fetch_symbol_history(self, symbol: str, years: int = 2) -> List[Dict[str, Any]]:
         symbol = symbol.upper()
