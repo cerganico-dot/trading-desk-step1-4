@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import re
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -61,8 +63,12 @@ class HistoricalPhase1Service:
                 )
                 """
             )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)"
+            )
             conn.commit()
 
     def _parse_date(self, raw: Any) -> Optional[str]:
@@ -85,15 +91,20 @@ class HistoricalPhase1Service:
         return None
 
     def _to_float(self, value: Any) -> Optional[float]:
-        if value is None or value == "":
+        if value is None:
             return None
 
         text = str(value).strip()
-        if not text:
+        if text == "":
             return None
 
+        text = text.replace("\xa0", "").replace(" ", "")
+
         if "," in text and "." in text:
-            text = text.replace(".", "").replace(",", ".")
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
         else:
             text = text.replace(",", ".")
 
@@ -137,23 +148,58 @@ class HistoricalPhase1Service:
                 return value
         return None
 
-    def _fetch_symbol_history(self, symbol: str, years: int = 2) -> List[Dict[str, Any]]:
-        symbol = symbol.upper()
-        if symbol not in self.SUPPORTED_SYMBOLS:
-            raise ValueError(f"unsupported symbol: {symbol}")
+    def _extract_json_from_text(self, text: str) -> Any:
+        clean = text.strip()
+        if not clean:
+            raise ValueError("empty response body")
 
+        try:
+            return json.loads(clean)
+        except Exception:
+            pass
+
+        clean = re.sub(r"^\)\]\}',?\s*", "", clean)
+
+        try:
+            return json.loads(clean)
+        except Exception:
+            pass
+
+        array_match = re.search(r"(\[\s*\{.*\}\s*\])", clean, re.DOTALL)
+        if array_match:
+            return json.loads(array_match.group(1))
+
+        object_match = re.search(r"(\{\s*.*\s*\})", clean, re.DOTALL)
+        if object_match:
+            return json.loads(object_match.group(1))
+
+        raise ValueError(f"unable to parse IOL response as JSON: {clean[:300]}")
+
+    def _fetch_payload(self, symbol: str) -> Any:
         url = self.BASE_URL.format(symbol=symbol)
+
         response = requests.get(
             url,
             timeout=30,
             headers={
                 "User-Agent": "Mozilla/5.0",
                 "Accept": "application/json,text/plain,*/*",
+                "Referer": "https://iol.invertironline.com/",
             },
         )
         response.raise_for_status()
 
-        payload = response.json()
+        try:
+            return response.json()
+        except Exception:
+            return self._extract_json_from_text(response.text)
+
+    def _fetch_symbol_history(self, symbol: str, years: int = 2) -> List[Dict[str, Any]]:
+        symbol = symbol.upper()
+        if symbol not in self.SUPPORTED_SYMBOLS:
+            raise ValueError(f"unsupported symbol: {symbol}")
+
+        payload = self._fetch_payload(symbol)
         items: List[Dict[str, Any]] = []
 
         if isinstance(payload, list):
@@ -165,7 +211,7 @@ class HistoricalPhase1Service:
                     items = maybe
                     break
 
-        cutoff = (datetime.utcnow() - timedelta(days=365 * years + 10)).date()
+        cutoff = (datetime.utcnow() - timedelta(days=365 * years + 15)).date()
 
         rows: List[Dict[str, Any]] = []
         for item in items:
@@ -178,8 +224,8 @@ class HistoricalPhase1Service:
             if trade_date is None or close_price is None:
                 continue
 
-            trade_dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
-            if trade_dt < cutoff:
+            dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
+            if dt < cutoff:
                 continue
 
             rows.append(
@@ -326,6 +372,7 @@ class HistoricalPhase1Service:
 
     def bootstrap_phase1(self, years: int = 2) -> Dict[str, Any]:
         symbol_counts: Dict[str, int] = {}
+
         for symbol in self.SUPPORTED_SYMBOLS:
             rows = self._fetch_symbol_history(symbol=symbol, years=years)
             symbol_counts[symbol] = self._upsert_symbol_rows(rows)
@@ -347,9 +394,15 @@ class HistoricalPhase1Service:
 
     def status(self) -> Dict[str, Any]:
         with self._connect() as conn:
-            al30_count = conn.execute("SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'").fetchone()[0]
-            gd30_count = conn.execute("SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'").fetchone()[0]
-            pair_count = conn.execute("SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'").fetchone()[0]
+            al30_count = conn.execute(
+                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'"
+            ).fetchone()[0]
+            gd30_count = conn.execute(
+                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'"
+            ).fetchone()[0]
+            pair_count = conn.execute(
+                "SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'"
+            ).fetchone()[0]
 
         return {
             "ok": True,
