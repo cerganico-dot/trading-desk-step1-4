@@ -1,429 +1,444 @@
 from __future__ import annotations
 
 import math
-import re
 import sqlite3
-from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import requests
 
 
-@dataclass
-class DailyBar:
-    symbol: str
-    trade_date: str
-    open_price: float
-    high_price: float
-    low_price: float
-    close_price: float
-    adjusted_close: float
-    amount: float | None
-    nominal_volume: float | None
-    source: str = "IOL_PUBLIC_HTML"
-
-
 class HistoricalPhase1Service:
-    SYMBOLS = ("AL30", "GD30")
-    PAIR_NAME = "AL30/GD30"
+    BASE_URL = "https://iol.invertironline.com/titulo/datoshistoricos?mercado=bcba&simbolo={symbol}"
+    SUPPORTED_SYMBOLS = ["AL30", "GD30"]
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, timezone: str = "America/Argentina/Buenos_Aires") -> None:
         self.db_path = db_path
+        self.timezone = timezone
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
 
-    def _conn(self) -> sqlite3.Connection:
+    def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def ensure_tables(self) -> None:
-        with self._conn() as conn:
+    def _init_db(self) -> None:
+        with self._connect() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS historical_daily_bars (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     symbol TEXT NOT NULL,
                     trade_date TEXT NOT NULL,
-                    open_price REAL NOT NULL,
-                    high_price REAL NOT NULL,
-                    low_price REAL NOT NULL,
-                    close_price REAL NOT NULL,
-                    adjusted_close REAL NOT NULL,
-                    amount REAL,
-                    nominal_volume REAL,
-                    source TEXT NOT NULL,
-                    inserted_at TEXT NOT NULL,
-                    PRIMARY KEY (symbol, trade_date)
+                    open REAL,
+                    high REAL,
+                    low REAL,
+                    close REAL NOT NULL,
+                    volume REAL,
+                    source TEXT DEFAULT 'IOL_PUBLIC',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(symbol, trade_date)
                 )
                 """
             )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS historical_pair_metrics (
-                    pair_name TEXT NOT NULL,
-                    trade_date TEXT NOT NULL,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pair_key TEXT NOT NULL,
                     left_symbol TEXT NOT NULL,
                     right_symbol TEXT NOT NULL,
+                    trade_date TEXT NOT NULL,
                     left_close REAL NOT NULL,
                     right_close REAL NOT NULL,
                     ratio REAL NOT NULL,
                     spread REAL NOT NULL,
                     zscore_20 REAL,
-                    inserted_at TEXT NOT NULL,
-                    PRIMARY KEY (pair_name, trade_date)
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(pair_key, trade_date)
                 )
                 """
             )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hdb_symbol_date ON historical_daily_bars(symbol, trade_date)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hpm_pair_date ON historical_pair_metrics(pair_key, trade_date)"
+            )
             conn.commit()
 
-    @staticmethod
-    def _to_float(raw: str) -> float:
-        return float(raw.replace(",", ""))
+    def _parse_date(self, raw: Any) -> Optional[str]:
+        if raw is None:
+            return None
 
-    @staticmethod
-    def _to_iso_date(mmddyyyy: str) -> str:
-        return datetime.strptime(mmddyyyy, "%m/%d/%Y").date().isoformat()
+        text = str(raw).strip()
+        if not text:
+            return None
 
-    def _historical_url(self, symbol: str) -> str:
-        return f"https://iol.invertironline.com/titulo/datoshistoricos?mercado=bcba&simbolo={symbol.lower()}"
+        if "T" in text:
+            text = text.split("T")[0]
 
-    def _extract_text(self, html: str) -> str:
-        text = re.sub(r"<script.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<style.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = text.replace("\xa0", " ")
-        text = re.sub(r"\s+", " ", text)
-        return text
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
 
-    def _parse_bars_from_html(self, symbol: str, html: str) -> list[DailyBar]:
-        text = self._extract_text(html)
-        pattern = re.compile(
-            r"(\d{2}/\d{2}/\d{4})\s+"
-            r"([0-9,]+\.\d{2})\s+"
-            r"([0-9,]+\.\d{2})\s+"
-            r"([0-9,]+\.\d{2})\s+"
-            r"([0-9,]+\.\d{2})\s+"
-            r"([0-9,]+\.\d{2})\s+"
-            r"([0-9,]+\.\d{2})\s+"
-            r"([0-9,]+\.\d{2})"
-        )
+        return None
 
-        rows: dict[str, DailyBar] = {}
-        for match in pattern.finditer(text):
-            trade_date = self._to_iso_date(match.group(1))
-            rows[trade_date] = DailyBar(
-                symbol=symbol,
-                trade_date=trade_date,
-                open_price=self._to_float(match.group(2)),
-                high_price=self._to_float(match.group(3)),
-                low_price=self._to_float(match.group(4)),
-                close_price=self._to_float(match.group(5)),
-                adjusted_close=self._to_float(match.group(6)),
-                amount=self._to_float(match.group(7)),
-                nominal_volume=self._to_float(match.group(8)),
-            )
+    def _to_float(self, value: Any) -> Optional[float]:
+        if value is None or value == "":
+            return None
+        try:
+            return float(str(value).replace(".", "").replace(",", ".")) if isinstance(value, str) and value.count(",") == 1 and value.count(".") >= 1 else float(str(value).replace(",", "."))
+        except Exception:
+            return None
 
-        return sorted(rows.values(), key=lambda x: x.trade_date)
+    def _extract_close(self, item: Dict[str, Any]) -> Optional[float]:
+        for key in ["ultimoPrecio", "ultimo", "cierre", "close", "precioCierre"]:
+            value = self._to_float(item.get(key))
+            if value is not None:
+                return value
+        return None
 
-    def fetch_public_history(self, symbol: str) -> list[DailyBar]:
-        response = requests.get(
-            self._historical_url(symbol),
-            timeout=30,
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
-            },
-        )
+    def _extract_open(self, item: Dict[str, Any]) -> Optional[float]:
+        for key in ["apertura", "open", "precioApertura"]:
+            value = self._to_float(item.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def _extract_high(self, item: Dict[str, Any]) -> Optional[float]:
+        for key in ["maximo", "high", "precioMaximo"]:
+            value = self._to_float(item.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def _extract_low(self, item: Dict[str, Any]) -> Optional[float]:
+        for key in ["minimo", "low", "precioMinimo"]:
+            value = self._to_float(item.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def _extract_volume(self, item: Dict[str, Any]) -> Optional[float]:
+        for key in ["volumenNominal", "volumen", "volume", "volumenOperado"]:
+            value = self._to_float(item.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def _fetch_symbol_history(self, symbol: str, years: int = 2) -> List[Dict[str, Any]]:
+        symbol = symbol.upper()
+        if symbol not in self.SUPPORTED_SYMBOLS:
+            raise ValueError(f"unsupported symbol: {symbol}")
+
+        url = self.BASE_URL.format(symbol=symbol)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
-        bars = self._parse_bars_from_html(symbol=symbol, html=response.text)
-        if not bars:
-            raise RuntimeError(f"No se pudieron parsear datos históricos para {symbol}")
-        return bars
+        payload = response.json()
 
-    def upsert_bars(self, bars: list[DailyBar]) -> int:
-        if not bars:
-            return 0
+        items: List[Dict[str, Any]] = []
+        if isinstance(payload, list):
+            items = payload
+        elif isinstance(payload, dict):
+            for key in ["data", "items", "result", "results"]:
+                if isinstance(payload.get(key), list):
+                    items = payload[key]
+                    break
 
-        inserted_at = datetime.now(UTC).isoformat()
-        with self._conn() as conn:
-            conn.executemany(
-                """
-                INSERT INTO historical_daily_bars (
-                    symbol, trade_date, open_price, high_price, low_price, close_price,
-                    adjusted_close, amount, nominal_volume, source, inserted_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(symbol, trade_date) DO UPDATE SET
-                    open_price=excluded.open_price,
-                    high_price=excluded.high_price,
-                    low_price=excluded.low_price,
-                    close_price=excluded.close_price,
-                    adjusted_close=excluded.adjusted_close,
-                    amount=excluded.amount,
-                    nominal_volume=excluded.nominal_volume,
-                    source=excluded.source,
-                    inserted_at=excluded.inserted_at
-                """,
-                [
-                    (
-                        b.symbol,
-                        b.trade_date,
-                        b.open_price,
-                        b.high_price,
-                        b.low_price,
-                        b.close_price,
-                        b.adjusted_close,
-                        b.amount,
-                        b.nominal_volume,
-                        b.source,
-                        inserted_at,
-                    )
-                    for b in bars
-                ],
-            )
-            conn.commit()
-        return len(bars)
+        cutoff = (datetime.utcnow() - timedelta(days=365 * years + 10)).date()
 
-    def _load_bars(self, symbol: str, start_date: str | None = None) -> list[dict[str, Any]]:
-        query = """
-            SELECT symbol, trade_date, open_price, high_price, low_price, close_price,
-                   adjusted_close, amount, nominal_volume, source
-            FROM historical_daily_bars
-            WHERE symbol = ?
-        """
-        params: list[Any] = [symbol]
-
-        if start_date:
-            query += " AND trade_date >= ?"
-            params.append(start_date)
-
-        query += " ORDER BY trade_date ASC"
-
-        with self._conn() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [dict(r) for r in rows]
-
-    def _compute_pair_metrics(self, left_rows: list[dict[str, Any]], right_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        right_map = {r["trade_date"]: r for r in right_rows}
-        aligned: list[dict[str, Any]] = []
-
-        for left in left_rows:
-            right = right_map.get(left["trade_date"])
-            if not right:
+        rows: List[Dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
                 continue
 
-            left_close = float(left["close_price"])
-            right_close = float(right["close_price"])
-            if right_close == 0:
+            trade_date = self._parse_date(item.get("fecha") or item.get("tradeDate") or item.get("date"))
+            close_price = self._extract_close(item)
+
+            if trade_date is None or close_price is None:
                 continue
 
-            aligned.append(
+            dt = datetime.strptime(trade_date, "%Y-%m-%d").date()
+            if dt < cutoff:
+                continue
+
+            rows.append(
                 {
-                    "pair_name": self.PAIR_NAME,
-                    "trade_date": left["trade_date"],
-                    "left_symbol": "AL30",
-                    "right_symbol": "GD30",
-                    "left_close": left_close,
-                    "right_close": right_close,
-                    "ratio": left_close / right_close,
-                    "spread": left_close - right_close,
-                    "zscore_20": None,
+                    "symbol": symbol,
+                    "trade_date": trade_date,
+                    "open": self._extract_open(item),
+                    "high": self._extract_high(item),
+                    "low": self._extract_low(item),
+                    "close": close_price,
+                    "volume": self._extract_volume(item),
                 }
             )
 
-        ratios = [row["ratio"] for row in aligned]
-        for i, row in enumerate(aligned):
-            if i < 19:
-                row["zscore_20"] = None
-                continue
+        rows.sort(key=lambda x: x["trade_date"])
+        return rows
 
-            window = ratios[i - 19:i + 1]
-            mean = sum(window) / 20.0
-            variance = sum((x - mean) ** 2 for x in window) / 20.0
-            std = math.sqrt(variance)
-            row["zscore_20"] = 0.0 if std == 0 else (row["ratio"] - mean) / std
-
-        return aligned
-
-    def upsert_pair_metrics(self, rows: list[dict[str, Any]]) -> int:
+    def _upsert_symbol_rows(self, rows: List[Dict[str, Any]]) -> int:
         if not rows:
             return 0
 
-        inserted_at = datetime.now(UTC).isoformat()
-        with self._conn() as conn:
+        with self._connect() as conn:
             conn.executemany(
                 """
-                INSERT INTO historical_pair_metrics (
-                    pair_name, trade_date, left_symbol, right_symbol,
-                    left_close, right_close, ratio, spread, zscore_20, inserted_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(pair_name, trade_date) DO UPDATE SET
-                    left_close=excluded.left_close,
-                    right_close=excluded.right_close,
-                    ratio=excluded.ratio,
-                    spread=excluded.spread,
-                    zscore_20=excluded.zscore_20,
-                    inserted_at=excluded.inserted_at
+                INSERT INTO historical_daily_bars (
+                    symbol, trade_date, open, high, low, close, volume, source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'IOL_PUBLIC')
+                ON CONFLICT(symbol, trade_date) DO UPDATE SET
+                    open=excluded.open,
+                    high=excluded.high,
+                    low=excluded.low,
+                    close=excluded.close,
+                    volume=excluded.volume,
+                    source='IOL_PUBLIC'
                 """,
                 [
                     (
-                        row["pair_name"],
+                        row["symbol"],
                         row["trade_date"],
-                        row["left_symbol"],
-                        row["right_symbol"],
-                        row["left_close"],
-                        row["right_close"],
-                        row["ratio"],
-                        row["spread"],
-                        row["zscore_20"],
-                        inserted_at,
+                        row["open"],
+                        row["high"],
+                        row["low"],
+                        row["close"],
+                        row["volume"],
                     )
                     for row in rows
                 ],
             )
             conn.commit()
+
         return len(rows)
 
-    def bootstrap_phase1(self, years: int = 2) -> dict[str, Any]:
-        self.ensure_tables()
-        cutoff = (date.today() - timedelta(days=365 * years + 15)).isoformat()
-
-        summary: dict[str, Any] = {
-            "ok": True,
-            "symbols": {},
-            "pair_name": self.PAIR_NAME,
-            "years_requested": years,
-        }
-
-        for symbol in self.SYMBOLS:
-            fetched = self.fetch_public_history(symbol)
-            filtered = [b for b in fetched if b.trade_date >= cutoff]
-            self.upsert_bars(filtered)
-
-            summary["symbols"][symbol] = {
-                "rows_fetched": len(fetched),
-                "rows_saved": len(filtered),
-                "first_date": filtered[0].trade_date if filtered else None,
-                "last_date": filtered[-1].trade_date if filtered else None,
-                "source_url": self._historical_url(symbol),
-            }
-
-        left_rows = self._load_bars("AL30", start_date=cutoff)
-        right_rows = self._load_bars("GD30", start_date=cutoff)
-        pair_rows = self._compute_pair_metrics(left_rows, right_rows)
-        self.upsert_pair_metrics(pair_rows)
-
-        summary["pair_metrics"] = {
-            "rows_saved": len(pair_rows),
-            "first_date": pair_rows[0]["trade_date"] if pair_rows else None,
-            "last_date": pair_rows[-1]["trade_date"] if pair_rows else None,
-        }
-
-        return summary
-
-    def status(self) -> dict[str, Any]:
-        self.ensure_tables()
-
-        with self._conn() as conn:
-            bars = conn.execute(
+    def _load_symbol_rows(self, symbol: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            result = conn.execute(
                 """
-                SELECT symbol, COUNT(*) AS cnt, MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
+                SELECT symbol, trade_date, open, high, low, close, volume
                 FROM historical_daily_bars
-                WHERE symbol IN ('AL30', 'GD30')
-                GROUP BY symbol
-                ORDER BY symbol
-                """
+                WHERE symbol = ?
+                ORDER BY trade_date ASC
+                """,
+                (symbol.upper(),),
             ).fetchall()
 
-            pair = conn.execute(
-                """
-                SELECT COUNT(*) AS cnt, MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
-                FROM historical_pair_metrics
-                WHERE pair_name = ?
-                """,
-                (self.PAIR_NAME,),
-            ).fetchone()
+        return [dict(row) for row in result]
+
+    def _rolling_mean(self, values: List[float]) -> float:
+        return sum(values) / len(values) if values else 0.0
+
+    def _rolling_std(self, values: List[float]) -> float:
+        if len(values) < 2:
+            return 0.0
+        mean = self._rolling_mean(values)
+        variance = sum((x - mean) ** 2 for x in values) / len(values)
+        return math.sqrt(variance)
+
+    def _build_pair_metrics(self, left_rows: List[Dict[str, Any]], right_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        left_map = {row["trade_date"]: row for row in left_rows}
+        right_map = {row["trade_date"]: row for row in right_rows}
+
+        common_dates = sorted(set(left_map.keys()) & set(right_map.keys()))
+        metrics: List[Dict[str, Any]] = []
+        ratios_window: List[float] = []
+
+        for trade_date in common_dates:
+            left_close = self._to_float(left_map[trade_date]["close"])
+            right_close = self._to_float(right_map[trade_date]["close"])
+
+            if left_close is None or right_close is None or right_close == 0:
+                continue
+
+            ratio = left_close / right_close
+            spread = left_close - right_close
+
+            ratios_window.append(ratio)
+            recent = ratios_window[-20:]
+            mean20 = self._rolling_mean(recent)
+            std20 = self._rolling_std(recent)
+            zscore_20 = None if std20 == 0 else (ratio - mean20) / std20
+
+            metrics.append(
+                {
+                    "pair_key": "AL30-GD30",
+                    "left_symbol": "AL30",
+                    "right_symbol": "GD30",
+                    "trade_date": trade_date,
+                    "left_close": round(left_close, 8),
+                    "right_close": round(right_close, 8),
+                    "ratio": round(ratio, 10),
+                    "spread": round(spread, 10),
+                    "zscore_20": None if zscore_20 is None else round(zscore_20, 10),
+                }
+            )
+
+        return metrics
+
+    def _replace_pair_metrics(self, metrics: List[Dict[str, Any]]) -> int:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'")
+            if metrics:
+                conn.executemany(
+                    """
+                    INSERT INTO historical_pair_metrics (
+                        pair_key, left_symbol, right_symbol, trade_date,
+                        left_close, right_close, ratio, spread, zscore_20
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            row["pair_key"],
+                            row["left_symbol"],
+                            row["right_symbol"],
+                            row["trade_date"],
+                            row["left_close"],
+                            row["right_close"],
+                            row["ratio"],
+                            row["spread"],
+                            row["zscore_20"],
+                        )
+                        for row in metrics
+                    ],
+                )
+            conn.commit()
+
+        return len(metrics)
+
+    def bootstrap_phase1(self, years: int = 2) -> Dict[str, Any]:
+        counts: Dict[str, int] = {}
+
+        for symbol in self.SUPPORTED_SYMBOLS:
+            rows = self._fetch_symbol_history(symbol=symbol, years=years)
+            counts[symbol] = self._upsert_symbol_rows(rows)
+
+        left_rows = self._load_symbol_rows("AL30")
+        right_rows = self._load_symbol_rows("GD30")
+        metrics = self._build_pair_metrics(left_rows, right_rows)
+        pair_count = self._replace_pair_metrics(metrics)
+
+        return {
+            "ok": True,
+            "years": years,
+            "db_path": self.db_path,
+            "timezone": self.timezone,
+            "symbols": counts,
+            "pair": "AL30-GD30",
+            "pair_rows": pair_count,
+        }
+
+    def status(self) -> Dict[str, Any]:
+        with self._connect() as conn:
+            al30_count = conn.execute(
+                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'AL30'"
+            ).fetchone()[0]
+            gd30_count = conn.execute(
+                "SELECT COUNT(*) FROM historical_daily_bars WHERE symbol = 'GD30'"
+            ).fetchone()[0]
+            pair_count = conn.execute(
+                "SELECT COUNT(*) FROM historical_pair_metrics WHERE pair_key = 'AL30-GD30'"
+            ).fetchone()[0]
 
         return {
             "ok": True,
             "db_path": self.db_path,
-            "symbols": [dict(r) for r in bars],
-            "pair": dict(pair) if pair else {"cnt": 0, "first_date": None, "last_date": None},
+            "timezone": self.timezone,
+            "symbols": {
+                "AL30": al30_count,
+                "GD30": gd30_count,
+            },
+            "pair": {
+                "AL30-GD30": pair_count,
+            },
         }
 
-    def get_symbol_history(self, symbol: str, limit: int = 600) -> dict[str, Any]:
-        self.ensure_tables()
-
-        with self._conn() as conn:
+    def get_symbol_history(self, symbol: str, limit: int = 2000) -> List[Dict[str, Any]]:
+        symbol = symbol.upper()
+        with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT symbol, trade_date, open_price, high_price, low_price, close_price,
-                       adjusted_close, amount, nominal_volume, source
+                SELECT symbol, trade_date, open, high, low, close, volume
                 FROM historical_daily_bars
                 WHERE symbol = ?
                 ORDER BY trade_date DESC
                 LIMIT ?
                 """,
-                (symbol, limit),
+                (symbol, int(limit)),
             ).fetchall()
 
-        out = [dict(r) for r in rows]
-        out.reverse()
+        result = [dict(row) for row in rows]
+        result.reverse()
+        return result
 
-        return {
-            "ok": True,
-            "symbol": symbol,
-            "rows": out,
-            "count": len(out),
-        }
+    def _rebuild_pair_metrics_if_needed(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT trade_date, left_close, right_close, ratio, spread, zscore_20
+                FROM historical_pair_metrics
+                WHERE pair_key = 'AL30-GD30'
+                ORDER BY trade_date ASC
+                """
+            ).fetchall()
 
-    def get_pair_history(self, limit: int = 600) -> dict[str, Any]:
-        self.ensure_tables()
+        if existing:
+            return [dict(row) for row in existing]
 
-        with self._conn() as conn:
+        left_rows = self._load_symbol_rows("AL30")
+        right_rows = self._load_symbol_rows("GD30")
+        if not left_rows or not right_rows:
+            return []
+
+        metrics = self._build_pair_metrics(left_rows, right_rows)
+        if metrics:
+            self._replace_pair_metrics(metrics)
+
+        return [
+            {
+                "trade_date": row["trade_date"],
+                "left_close": row["left_close"],
+                "right_close": row["right_close"],
+                "ratio": row["ratio"],
+                "spread": row["spread"],
+                "zscore_20": row["zscore_20"],
+            }
+            for row in metrics
+        ]
+
+    def get_pair_history(self, limit: int = 2000) -> List[Dict[str, Any]]:
+        metrics = self._rebuild_pair_metrics_if_needed()
+        if metrics:
+            trimmed = metrics[-int(limit):]
+            return [
+                {
+                    "trade_date": row["trade_date"],
+                    "left_close": row["left_close"],
+                    "right_close": row["right_close"],
+                    "ratio": row["ratio"],
+                    "spread": row["spread"],
+                    "zscore_20": row["zscore_20"],
+                }
+                for row in trimmed
+            ]
+
+        with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT pair_name, trade_date, left_symbol, right_symbol,
-                       left_close, right_close, ratio, spread, zscore_20
+                SELECT trade_date, left_close, right_close, ratio, spread, zscore_20
                 FROM historical_pair_metrics
-                WHERE pair_name = ?
+                WHERE pair_key = 'AL30-GD30'
                 ORDER BY trade_date DESC
                 LIMIT ?
                 """,
-                (self.PAIR_NAME, limit),
+                (int(limit),),
             ).fetchall()
 
-        out = [dict(r) for r in rows]
-        out.reverse()
-
-        if out:
-            return {
-                "ok": True,
-                "pair_name": self.PAIR_NAME,
-                "rows": out,
-                "count": len(out),
-            }
-
-        left_rows = self._load_bars("AL30")
-        right_rows = self._load_bars("GD30")
-        rebuilt = self._compute_pair_metrics(left_rows, right_rows)
-
-        if rebuilt:
-            self.upsert_pair_metrics(rebuilt)
-            rebuilt = rebuilt[-limit:]
-            return {
-                "ok": True,
-                "pair_name": self.PAIR_NAME,
-                "rows": rebuilt,
-                "count": len(rebuilt),
-            }
-
-        return {
-            "ok": True,
-            "pair_name": self.PAIR_NAME,
-            "rows": [],
-            "count": 0,
-        }
+        result = [dict(row) for row in rows]
+        result.reverse()
+        return result
