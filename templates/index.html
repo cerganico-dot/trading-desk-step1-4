@@ -1,691 +1,1070 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Trading Desk Argentino</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>ARG Trading Desk</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
-    :root {
-      --bg: #0b1220;
-      --panel: #111827;
-      --panel-2: #182233;
-      --line: #2a3547;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #60a5fa;
-      --warn: #f59e0b;
-      --ok: #22c55e;
-      --danger: #ef4444;
+    body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
+    .wrap { max-width: 1540px; margin: 0 auto; padding: 20px; }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
+    .card { background:#111827; border:1px solid #1f2937; border-radius:16px; padding:16px; }
+    .span-12 { grid-column: span 12; }
+    .span-8 { grid-column: span 8; }
+    .span-6 { grid-column: span 6; }
+    .span-4 { grid-column: span 4; }
+    .muted { color:#94a3b8; font-size:12px; }
+    .warn { color:#fca5a5; font-size:12px; margin-top:8px; }
+    .ok { color:#86efac; font-size:12px; margin-top:8px; }
+    .hidden { display:none; }
+    .kv { display:grid; grid-template-columns: 170px 1fr; gap:8px; font-size:14px; }
+    .kv div:nth-child(odd) { color:#93c5fd; }
+    .log-wrap { max-height: 340px; overflow:auto; border:1px solid #1f2937; border-radius:12px; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:8px 10px; border-bottom:1px solid #1f2937; font-size:13px; text-align:left; white-space: nowrap; }
+    th { color:#93c5fd; position: sticky; top: 0; background:#111827; z-index: 1; }
+    tr:hover { background:#172554; cursor:pointer; }
+    tr.active-row { background:#1d4ed8 !important; }
+    .pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; }
+    .buy { background:#052e16; color:#86efac; }
+    .sell { background:#450a0a; color:#fca5a5; }
+    .none { background:#1f2937; color:#cbd5e1; }
+    .open { background:#1e3a8a; color:#bfdbfe; }
+    .close { background:#3f6212; color:#d9f99d; }
+    .empty-row td { color:#94a3b8; text-align:center; padding:18px 10px; }
+    .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .tab-btn {
+      border:1px solid #334155; background:#0f172a; color:#cbd5e1;
+      padding:8px 12px; border-radius:10px; cursor:pointer; font-size:13px;
     }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Arial, Helvetica, sans-serif;
+    .tab-btn.active { background:#1d4ed8; color:#ffffff; border-color:#2563eb; }
+    .pair-head {
+      display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;
     }
-
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      background: #08101d;
-      border-bottom: 1px solid var(--line);
-      padding: 14px 16px;
+    .pair-title { font-size:20px; font-weight:700; }
+    .pair-sub { color:#94a3b8; font-size:12px; }
+    .mini-kpis { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+    .mini-kpi {
+      background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:10px 12px; min-width:140px;
     }
-
-    .row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
+    .mini-kpi .label { color:#93c5fd; font-size:12px; }
+    .mini-kpi .value { font-size:16px; margin-top:4px; }
+    .pair-form {
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px;
     }
-
+    .pair-form input {
+      background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:10px;
+      padding:10px 12px; min-width:140px;
+    }
     .btn {
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--text);
-      padding: 10px 14px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 700;
+      background:#1d4ed8; color:white; border:1px solid #2563eb; border-radius:10px;
+      padding:10px 14px; cursor:pointer;
     }
-
-    .btn.active {
-      background: var(--accent);
-      color: #08111f;
-      border-color: var(--accent);
+    .btn.secondary {
+      background:#0b1220; color:#cbd5e1; border-color:#334155;
     }
-
-    .btn.small {
-      padding: 8px 12px;
-      font-size: 12px;
+    .chip-list {
+      display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;
     }
-
-    #debugMessage {
-      margin-top: 10px;
-      color: var(--warn);
-      font-weight: 700;
+    .chip {
+      display:flex; align-items:center; gap:8px; padding:8px 10px;
+      border:1px solid #334155; border-radius:999px; background:#0b1220; font-size:12px;
     }
-
-    .container {
-      max-width: 1500px;
-      margin: 0 auto;
-      padding: 16px;
+    .chip button {
+      background:#450a0a; color:#fca5a5; border:1px solid #7f1d1d;
+      border-radius:999px; cursor:pointer; padding:2px 8px;
     }
-
-    .view { display: none; }
-    .view.active { display: block; }
-
-    .grid {
-      display: grid;
-      gap: 16px;
+    .top-mode-tabs {
+      display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;
     }
-
-    .grid-2 {
-      grid-template-columns: 2fr 1fr;
+    .mode-btn {
+      border:1px solid #334155;
+      background:#0b1220;
+      color:#cbd5e1;
+      padding:10px 14px;
+      border-radius:10px;
+      cursor:pointer;
+      font-size:13px;
     }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 14px;
-      overflow: hidden;
-    }
-
-    .card h3 {
-      margin: 0 0 12px 0;
-      font-size: 16px;
-    }
-
-    .muted { color: var(--muted); }
-
-    .state-block {
-      white-space: pre-wrap;
-      font-family: Consolas, monospace;
-      font-size: 13px;
-      line-height: 1.4;
-      color: #d1d5db;
-      background: #0b1220;
-      border: 1px solid var(--line);
-      padding: 12px;
-      border-radius: 8px;
-      min-height: 180px;
-    }
-
-    .table-wrap {
-      overflow: auto;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 1150px;
-    }
-
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 8px 10px;
-      text-align: left;
-      font-size: 13px;
-    }
-
-    th {
-      background: #0b1220;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-
-    .pill {
-      display: inline-block;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: #0b1220;
-      font-size: 12px;
-      color: var(--text);
-      margin-right: 8px;
-      margin-bottom: 8px;
-    }
-
-    canvas {
-      width: 100% !important;
-      height: 340px !important;
-    }
-
-    #livePairButtons,
-    #historicalPairButtons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    @media (max-width: 1100px) {
-      .grid-2 {
-        grid-template-columns: 1fr;
-      }
+    .mode-btn.active {
+      background:#2563eb;
+      color:#fff;
+      border-color:#2563eb;
     }
   </style>
 </head>
 <body>
-  <div class="topbar">
-    <div class="row">
-      <button id="btnLive" class="btn active" onclick="showView('live')">LIVE</button>
-      <button id="btnHistorico" class="btn" onclick="showView('historico')">HISTORICO</button>
+<div class="wrap">
+  <div class="grid">
+    <div class="card span-12">
+      <h1>ARG Trading Desk</h1>
+      <div class="muted" id="modeLabel">Cargando...</div>
+      <div class="ok" id="storageLabel"></div>
+      <div class="warn" id="debugBox"></div>
+
+      <div class="pair-form" id="liveControls">
+        <input id="leftTickerInput" placeholder="Ticker izquierdo" />
+        <input id="rightTickerInput" placeholder="Ticker derecho" />
+        <button class="btn" id="addPairBtn">Agregar par</button>
+        <button class="btn secondary" id="refreshBtn">Refrescar</button>
+      </div>
+
+      <div class="top-mode-tabs">
+        <button class="mode-btn active" id="modeLiveBtn">Desk Live</button>
+        <button class="mode-btn" id="modeHistBtn">Histórico AL30/GD30</button>
+      </div>
+
+      <div class="chip-list" id="manualPairsList"></div>
+      <div class="tabs" id="pairTabs"></div>
     </div>
-    <div id="debugMessage">Cargando histórico...</div>
+
+    <div id="liveView" class="span-12">
+      <div class="grid">
+        <div class="card span-12">
+          <div class="pair-head">
+            <div>
+              <div class="pair-title" id="pairTitle">Par</div>
+              <div class="pair-sub" id="pairSubtitle">Detalle del arbitraje</div>
+            </div>
+            <div class="mini-kpis" id="pairKpis"></div>
+          </div>
+        </div>
+
+        <div class="card span-4">
+          <h3>Riesgo</h3>
+          <div id="riskBox" class="kv"></div>
+        </div>
+
+        <div class="card span-8">
+          <h3>Notas</h3>
+          <ul id="notes"></ul>
+        </div>
+
+        <div class="card span-12">
+          <h3>Z-Score histórico</h3>
+          <div id="zscoreChart" style="height:440px;"></div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Oportunidades del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Par</th>
+                  <th>Operación</th>
+                  <th>Z</th>
+                  <th>Edge</th>
+                  <th>Filtro</th>
+                </tr>
+              </thead>
+              <tbody id="logBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Paper trading del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Evento</th>
+                  <th>Par</th>
+                  <th>Side</th>
+                  <th>PnL</th>
+                </tr>
+              </thead>
+              <tbody id="paperBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Alertas del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Par</th>
+                  <th>Señal</th>
+                  <th>Z</th>
+                  <th>Canal</th>
+                </tr>
+              </thead>
+              <tbody id="alertsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-6">
+          <h3>Posiciones abiertas del par</h3>
+          <div class="log-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Par</th>
+                  <th>Side</th>
+                  <th>Entry Z</th>
+                  <th>Entry Ratio</th>
+                  <th>Notional</th>
+                </tr>
+              </thead>
+              <tbody id="positionsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="historyView" class="span-12 hidden">
+      <div class="grid">
+        <div class="card span-12">
+          <div class="pair-head">
+            <div>
+              <div class="pair-title">Histórico AL30/GD30</div>
+              <div class="pair-sub" id="histSubTitle">Cargando histórico...</div>
+            </div>
+            <div class="mini-kpis" id="histKpis"></div>
+          </div>
+        </div>
+
+        <div class="card span-12">
+          <h3>Ratio histórico + Bollinger + Media móvil</h3>
+          <div id="histRatioChart" style="height:460px;"></div>
+        </div>
+
+        <div class="card span-12">
+          <h3>Z-Score 20 histórico</h3>
+          <div id="histZChart" style="height:420px;"></div>
+        </div>
+
+        <div class="card span-12">
+          <h3>Tabla histórica</h3>
+          <div class="log-wrap" style="max-height:460px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>AL30</th>
+                  <th>GD30</th>
+                  <th>Ratio</th>
+                  <th>Spread</th>
+                  <th>Z-Score 20</th>
+                </tr>
+              </thead>
+              <tbody id="histTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
+</div>
 
-  <div class="container">
-    <section id="view-live" class="view active">
-      <div class="card" style="margin-bottom:16px;">
-        <h3>Ratios LIVE</h3>
-        <div id="livePairButtons"></div>
-      </div>
+<script>
+let stateCache = null;
+let selectedPoint = null;
+let activePair = null;
+let currentView = 'live';
+let historicalCache = null;
 
-      <div class="grid grid-2">
-        <div class="card">
-          <h3 id="liveChartTitle">ZScore</h3>
-          <canvas id="liveZscoreChart"></canvas>
-        </div>
+const ACTIVE_TAB_KEY = 'tradingdesk_active_pair_v2';
+const ACTIVE_VIEW_KEY = 'tradingdesk_active_view_v1';
 
-        <div class="card">
-          <h3>Estado</h3>
-          <div id="liveStateBlock" class="state-block"></div>
-        </div>
-      </div>
+function saveActivePair(pair) {
+  try { if (pair) localStorage.setItem(ACTIVE_TAB_KEY, pair); } catch (_) {}
+}
+function loadActivePair() {
+  try { return localStorage.getItem(ACTIVE_TAB_KEY); } catch (_) { return null; }
+}
+function saveActiveView(view) {
+  try { localStorage.setItem(ACTIVE_VIEW_KEY, view); } catch (_) {}
+}
+function loadActiveView() {
+  try { return localStorage.getItem(ACTIVE_VIEW_KEY) || 'live'; } catch (_) { return 'live'; }
+}
 
-      <div class="card" style="margin-top:16px;">
-        <h3>Opportunity Log</h3>
-        <div class="table-wrap">
-          <table id="liveOpportunityTable">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Timestamp</th>
-                <th>Pair</th>
-                <th>Signal</th>
-                <th>ZScore</th>
-                <th>Ratio</th>
-                <th>Spread</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+function fmt(n, digits = 4) {
+  if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '-';
+  return Number(n).toLocaleString('es-AR', { maximumFractionDigits: digits });
+}
 
-    <section id="view-historico" class="view">
-      <div class="card" style="margin-bottom:16px;">
-        <h3>Histórico</h3>
-        <div id="historicalPairButtons"></div>
-      </div>
+function signalClass(sig) {
+  return String(sig || '').startsWith('BUY') ? 'buy'
+       : String(sig || '').startsWith('SELL') ? 'sell'
+       : 'none';
+}
 
-      <div class="card">
-        <h3 id="historyHeaderTitle">HISTORICO AL30/GD30</h3>
-        <div id="historyInfo"></div>
-      </div>
+function paperClass(ev) {
+  const t = String(ev || '').toUpperCase();
+  if (t.includes('OPEN') || t.includes('ENTRY')) return 'open';
+  if (t.includes('CLOSE') || t.includes('EXIT')) return 'close';
+  return 'none';
+}
 
-      <div class="card" style="margin-top:16px;">
-        <h3>Ratio + Media Móvil 20 + Bollinger Bands</h3>
-        <canvas id="historyRatioChart"></canvas>
-      </div>
+function normalizeIndex(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
-      <div class="card" style="margin-top:16px;">
-        <h3>ZScore 20 histórico</h3>
-        <canvas id="historyZscoreChart"></canvas>
-      </div>
+function getSeriesKeys(s) {
+  const zh = s.zscore_history || {};
+  return Object.keys(zh).filter(k => Array.isArray(zh[k]) && zh[k].length);
+}
 
-      <div class="card" style="margin-top:16px;">
-        <h3>Tabla histórica</h3>
-        <div class="table-wrap">
-          <table id="historyTable">
-            <thead>
-              <tr>
-                <th>Trade Date</th>
-                <th>Left</th>
-                <th>Right</th>
-                <th>Ratio</th>
-                <th>Spread</th>
-                <th>ZScore 20</th>
-                <th>MA20</th>
-                <th>Upper BB</th>
-                <th>Lower BB</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  </div>
+function getAvailablePairs(s) {
+  const set = new Set();
+  (s.pairs || []).forEach(p => set.add(String(p)));
+  Object.keys(s.zscore_history || {}).forEach(p => set.add(String(p)));
+  (s.opportunity_log || []).forEach(x => { if (x.pair) set.add(String(x.pair)); });
+  return Array.from(set).filter(Boolean);
+}
 
-  <script>
-    let liveZscoreChart = null;
-    let historyRatioChart = null;
-    let historyZscoreChart = null;
+function getDefaultPair(s) {
+  const pairs = getAvailablePairs(s);
+  if (!pairs.length) return null;
+  const saved = loadActivePair();
+  if (saved && pairs.includes(saved)) return saved;
+  if (activePair && pairs.includes(activePair)) return activePair;
+  return pairs[0];
+}
 
-    let latestState = null;
-    let selectedLivePair = null;
-    let selectedHistoricalPair = "AL30-GD30";
+function getPaperEventsSource(s) {
+  const candidates = [
+    ['paper_events', s.paper_events],
+    ['paper_trades', s.paper_trades],
+    ['paper_trade_log', s.paper_trade_log],
+    ['paper_log', s.paper_log],
+    ['paper_history', s.paper_history],
+    ['paperTrading', s.paperTrading],
+    ['trades', s.trades],
+    ['events', s.events]
+  ];
+  for (const [name, value] of candidates) {
+    if (Array.isArray(value) && value.length) return { name, items: value };
+  }
+  for (const [name, value] of candidates) {
+    if (Array.isArray(value)) return { name, items: value };
+  }
+  return { name: 'none', items: [] };
+}
 
-    function pairToKey(pair) {
-      if (Array.isArray(pair) && pair.length === 2) return `${pair[0]}-${pair[1]}`;
-      if (typeof pair === "string") return pair.replace("/", "-").replace("_", "-").toUpperCase();
-      return "";
-    }
+function getEventIndexFromTime(item, x) {
+  const possibleTimes = [
+    item.timestamp, item.time, item.event_time, item.entry_time,
+    item.exit_time, item.ts, item.datetime
+  ].filter(Boolean).map(v => String(v));
 
-    function keyToPretty(key) {
-      return key.replace("-", "/");
-    }
+  if (!possibleTimes.length) return null;
 
-    function showView(view) {
-      document.getElementById("view-live").classList.remove("active");
-      document.getElementById("view-historico").classList.remove("active");
-      document.getElementById("btnLive").classList.remove("active");
-      document.getElementById("btnHistorico").classList.remove("active");
+  for (const t of possibleTimes) {
+    const exactIdx = x.findIndex(v => String(v) === t);
+    if (exactIdx >= 0) return exactIdx;
+  }
+  for (const t of possibleTimes) {
+    const partialIdx = x.findIndex(v => String(v).includes(t) || t.includes(String(v)));
+    if (partialIdx >= 0) return partialIdx;
+  }
+  return null;
+}
 
-      if (view === "live") {
-        document.getElementById("view-live").classList.add("active");
-        document.getElementById("btnLive").classList.add("active");
-      } else {
-        document.getElementById("view-historico").classList.add("active");
-        document.getElementById("btnHistorico").classList.add("active");
-      }
-    }
+function resolveEventIndex(item, x) {
+  const direct = normalizeIndex(item.series_index);
+  if (direct !== null && direct >= 0 && direct < x.length) return direct;
+  return getEventIndexFromTime(item, x);
+}
 
-    function destroyChart(chartRef) {
-      if (chartRef) chartRef.destroy();
-      return null;
-    }
+function getEventPair(item, keys) {
+  if (item.pair && keys.includes(item.pair)) return item.pair;
+  const candidates = [item.pair, item.symbol, item.instrument, item.ticker, item.asset, item.series]
+    .filter(Boolean).map(v => String(v));
+  for (const c of candidates) if (keys.includes(c)) return c;
+  for (const c of candidates) {
+    const found = keys.find(k => c.includes(k) || k.includes(c));
+    if (found) return found;
+  }
+  return item.pair || item.symbol || item.instrument || item.ticker || '-';
+}
 
-    function formatNumber(v, digits = 4) {
-      if (v === null || v === undefined || v === "") return "";
-      const n = Number(v);
-      if (Number.isNaN(n)) return "";
-      return n.toFixed(digits);
-    }
+function getEventType(item) {
+  return item.event_type || item.event || item.type || item.action || '-';
+}
 
-    function rollingStats(values, windowSize = 20) {
-      const ma = [];
-      const upper = [];
-      const lower = [];
+function getEventTime(item) {
+  return item.time || item.timestamp || item.event_time || item.entry_time || item.exit_time || item.ts || item.datetime || '-';
+}
 
-      for (let i = 0; i < values.length; i++) {
-        const slice = values
-          .slice(Math.max(0, i - windowSize + 1), i + 1)
-          .filter(v => v !== null && v !== undefined && !Number.isNaN(v));
+function getEventSide(item) {
+  return item.side || item.direction || item.trade_side || '-';
+}
 
-        if (!slice.length) {
-          ma.push(null);
-          upper.push(null);
-          lower.push(null);
-          continue;
-        }
+function getEventPnl(item) {
+  if (item.pnl_currency !== undefined) return item.pnl_currency;
+  if (item.pnl !== undefined) return item.pnl;
+  if (item.realized_pnl !== undefined) return item.realized_pnl;
+  if (item.unrealized_pnl !== undefined) return item.unrealized_pnl;
+  return null;
+}
 
-        const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
-        const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / slice.length;
-        const std = Math.sqrt(variance);
+function pairFilter(items, pair) {
+  return (items || []).filter(x => {
+    const p = x.pair || x.symbol || x.instrument || x.series;
+    return String(p || '') === String(pair || '');
+  });
+}
 
-        ma.push(mean);
-        upper.push(mean + 2 * std);
-        lower.push(mean - 2 * std);
-      }
+function rollingMean(values, window) {
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) continue;
+    const slice = values.slice(i - window + 1, i + 1);
+    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
+    out[i] = slice.reduce((a, b) => a + b, 0) / window;
+  }
+  return out;
+}
 
-      return { ma, upper, lower };
-    }
+function rollingStd(values, window) {
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) continue;
+    const slice = values.slice(i - window + 1, i + 1);
+    if (slice.some(v => v === null || !Number.isFinite(v))) continue;
+    const mean = slice.reduce((a, b) => a + b, 0) / window;
+    const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
+    out[i] = Math.sqrt(variance);
+  }
+  return out;
+}
 
-    function extractAvailablePairs(data) {
-      const pairs = [];
-      const seen = new Set();
+function buildBollinger(values, window, mult) {
+  const ma = rollingMean(values, window);
+  const std = rollingStd(values, window);
+  return {
+    ma,
+    upper: ma.map((m, i) => (m === null || std[i] === null ? null : m + std[i] * mult)),
+    lower: ma.map((m, i) => (m === null || std[i] === null ? null : m - std[i] * mult))
+  };
+}
 
-      (data.pairs || []).forEach(pair => {
-        const key = pairToKey(pair);
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          pairs.push(key);
-        }
-      });
+function renderManualPairsList(s) {
+  const el = document.getElementById('manualPairsList');
+  el.innerHTML = '';
 
-      Object.keys(data.zscore_history || {}).forEach(key => {
-        const normalized = pairToKey(key);
-        if (normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          pairs.push(normalized);
-        }
-      });
+  if (currentView !== 'live') {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
 
-      Object.keys(data.ratio_history || {}).forEach(key => {
-        const normalized = pairToKey(key);
-        if (normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          pairs.push(normalized);
-        }
-      });
+  const manualPairs = s.manual_pairs || [];
+  if (!manualPairs.length) {
+    const span = document.createElement('span');
+    span.className = 'muted';
+    span.textContent = 'Sin pares manuales cargados.';
+    el.appendChild(span);
+    return;
+  }
 
-      Object.keys(data.ratios || {}).forEach(key => {
-        const normalized = pairToKey(key);
-        if (normalized && !seen.has(normalized)) {
-          seen.add(normalized);
-          pairs.push(normalized);
-        }
-      });
+  manualPairs.forEach(pairName => {
+    const [left, right] = String(pairName).split('/');
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `<span>${pairName}</span>`;
 
-      if (!pairs.length) pairs.push("AL30-GD30");
-      return pairs;
-    }
+    const btn = document.createElement('button');
+    btn.textContent = 'X';
+    btn.addEventListener('click', async () => {
+      await deletePair(left, right);
+    });
 
-    function renderLivePairButtons(data) {
-      const container = document.getElementById("livePairButtons");
-      container.innerHTML = "";
+    chip.appendChild(btn);
+    el.appendChild(chip);
+  });
+}
 
-      const pairs = extractAvailablePairs(data);
-      if (!selectedLivePair || !pairs.includes(selectedLivePair)) {
-        selectedLivePair = pairs[0];
-      }
+function renderTabs(s) {
+  const tabsEl = document.getElementById('pairTabs');
+  if (currentView !== 'live') {
+    tabsEl.classList.add('hidden');
+    return;
+  }
+  tabsEl.classList.remove('hidden');
 
-      pairs.forEach(key => {
-        const btn = document.createElement("button");
-        btn.className = "btn small" + (key === selectedLivePair ? " active" : "");
-        btn.textContent = keyToPretty(key);
-        btn.onclick = () => {
-          selectedLivePair = key;
-          renderLivePairButtons(latestState);
-          renderLiveChart(latestState);
-        };
-        container.appendChild(btn);
-      });
-    }
+  const pairs = getAvailablePairs(s);
+  activePair = getDefaultPair(s);
+  saveActivePair(activePair);
 
-    async function loadLive() {
-      try {
-        const res = await fetch("/api/state", { cache: "no-store" });
-        const data = await res.json();
-        latestState = data;
+  tabsEl.innerHTML = '';
+  pairs.forEach(pair => {
+    const btn = document.createElement('button');
+    btn.className = `tab-btn ${pair === activePair ? 'active' : ''}`;
+    btn.textContent = pair;
+    btn.addEventListener('click', () => {
+      activePair = pair;
+      saveActivePair(activePair);
+      selectedPoint = null;
+      renderAll(stateCache);
+    });
+    tabsEl.appendChild(btn);
+  });
+}
 
-        renderLivePairButtons(data);
-        renderLiveState(data);
-        renderLiveChart(data);
-        renderOpportunityLog(data.opportunity_log || []);
-      } catch (err) {
-        document.getElementById("liveStateBlock").textContent = "Error cargando LIVE: " + err;
-      }
-    }
+function renderRisk(r) {
+  document.getElementById('riskBox').innerHTML = `
+    <div>Capital</div><div>${fmt(r.capital,2)}</div>
+    <div>Máx riesgo/trade</div><div>${fmt(r.max_risk_per_trade,2)}</div>
+    <div>Máx riesgo diario</div><div>${fmt(r.max_daily_risk,2)}</div>
+    <div>Gross exposure</div><div>${fmt(r.current_gross_exposure,2)}</div>
+    <div>Límite exposición</div><div>${fmt(r.exposure_limit,2)}</div>
+    <div>Utilización</div><div>${fmt((r.utilization_pct || 0) * 100,2)}%</div>
+    <div>Status</div><div>${r.status || '-'}</div>
+  `;
+}
 
-    function renderLiveState(data) {
-      const stateText = {
-        mode: data.mode,
-        timezone: data.timezone,
-        db_path: data.db_path,
-        symbols: data.symbols,
-        pairs: data.pairs,
-        manual_pairs: data.manual_pairs,
-        quotes_count: Object.keys(data.quotes || {}).length,
-        ratios_count: Object.keys(data.ratios || {}).length,
-        zscores_count: Object.keys(data.zscores || {}).length,
-        pair_signals_count: Object.keys(data.pair_signals || {}).length,
-        opportunity_log_count: (data.opportunity_log || []).length,
-        paper_positions_count: (data.paper_positions || []).length,
-        paper_events_count: (data.paper_events || []).length,
-        paper_trades_count: (data.paper_trades || []).length,
-        alerts_sent_count: (data.alerts_sent || []).length
+function renderNotes(notes) {
+  const el = document.getElementById('notes');
+  el.innerHTML = '';
+  (notes || []).forEach(n => {
+    const li = document.createElement('li');
+    li.textContent = n;
+    el.appendChild(li);
+  });
+}
+
+function buildSelectedPointTrace(s, x) {
+  if (!selectedPoint || !selectedPoint.pair) return null;
+  const pair = selectedPoint.pair;
+  const idx = normalizeIndex(selectedPoint.series_index);
+
+  if (pair !== activePair) return null;
+  if (idx === null) return null;
+  if (!s.zscore_history || !Array.isArray(s.zscore_history[pair])) return null;
+  if (idx < 0 || idx >= x.length) return null;
+
+  const yVal = s.zscore_history[pair][idx];
+  if (yVal === null || yVal === undefined) return null;
+
+  return {
+    x: [x[idx]],
+    y: [yVal],
+    mode: 'markers',
+    type: 'scatter',
+    name: 'Selección',
+    marker: { size: 16, symbol: 'circle-open-dot', line: { width: 3 } },
+    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+  };
+}
+
+function buildPaperEventTraces(s, x, paperItems) {
+  const keys = getSeriesKeys(s);
+  const grouped = {};
+  let plottedCount = 0;
+
+  paperItems.forEach(item => {
+    const pair = getEventPair(item, keys);
+    if (!pair || !keys.includes(pair)) return;
+    if (activePair && pair !== activePair) return;
+
+    const idx = resolveEventIndex(item, x);
+    if (idx === null || idx < 0 || idx >= x.length) return;
+
+    const zHistory = s.zscore_history[pair];
+    if (!Array.isArray(zHistory) || zHistory[idx] === null || zHistory[idx] === undefined) return;
+
+    if (!grouped[pair]) grouped[pair] = { x: [], y: [], text: [], symbols: [], sizes: [] };
+
+    const eventType = String(getEventType(item)).toUpperCase();
+    const isClose = eventType.includes('CLOSE') || eventType.includes('EXIT');
+    grouped[pair].x.push(x[idx]);
+    grouped[pair].y.push(zHistory[idx]);
+    grouped[pair].text.push(
+      [
+        getEventTime(item),
+        getEventType(item),
+        pair,
+        getEventSide(item),
+        `PnL: ${fmt(getEventPnl(item), 2)}`
+      ].join(' | ')
+    );
+    grouped[pair].symbols.push(isClose ? 'diamond-open' : 'diamond');
+    grouped[pair].sizes.push(isClose ? 12 : 11);
+    plottedCount += 1;
+  });
+
+  return {
+    traces: Object.keys(grouped).map(pair => ({
+      x: grouped[pair].x,
+      y: grouped[pair].y,
+      text: grouped[pair].text,
+      mode: 'markers',
+      type: 'scatter',
+      name: `Paper ${pair}`,
+      marker: { size: grouped[pair].sizes, symbol: grouped[pair].symbols, line: { width: 2 } },
+      hovertemplate: '%{text}<extra></extra>'
+    })),
+    plottedCount
+  };
+}
+
+function renderLiveChart(s, paperItems) {
+  const pair = activePair;
+  const x = s.series_timestamps || [];
+  const y = (s.zscore_history || {})[pair] || [];
+
+  if (!pair || !x.length || !y.length) {
+    document.getElementById('zscoreChart').innerHTML = '<div class="muted">Sin histórico suficiente para este par.</div>';
+    return;
+  }
+
+  const traces = [{
+    x,
+    y,
+    mode: 'lines+markers',
+    type: 'scatter',
+    name: pair,
+    hovertemplate: `${pair}<br>%{x}<br>Z: %{y}<extra></extra>`
+  }];
+
+  const paper = buildPaperEventTraces(s, x, paperItems);
+  const selectedTrace = buildSelectedPointTrace(s, x);
+
+  if (selectedTrace) traces.push(selectedTrace);
+  traces.push(...paper.traces);
+
+  Plotly.react(
+    'zscoreChart',
+    traces,
+    {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e5e7eb' },
+      margin:{ t:20, r:20, b:50, l:50 },
+      xaxis:{ title:'Hora' },
+      yaxis:{ title:'Z-Score' },
+      legend:{ orientation:'h' }
+    },
+    { responsive:true, displayModeBar:false }
+  );
+
+  const totalEvents = Array.isArray(paperItems) ? paperItems.length : 0;
+  document.getElementById('debugBox').textContent =
+    totalEvents > 0 && paper.plottedCount === 0
+      ? `Paper detectado para ${pair}: ${totalEvents} eventos, pero no se pudieron mapear al gráfico.`
+      : '';
+}
+
+function setActiveRow(tbodyId, row) {
+  document.querySelectorAll(`#${tbodyId} tr`).forEach(r => r.classList.remove('active-row'));
+  if (row) row.classList.add('active-row');
+}
+
+function renderRows(id, items, rowBuilder, emptyMessage = 'Sin datos') {
+  const body = document.getElementById(id);
+  body.innerHTML = '';
+
+  if (!Array.isArray(items) || !items.length) {
+    const colspans = { logBody: 6, paperBody: 5, alertsBody: 5, positionsBody: 5, histTableBody: 6 };
+    body.innerHTML = `<tr class="empty-row"><td colspan="${colspans[id] || 5}">${emptyMessage}</td></tr>`;
+    return;
+  }
+
+  items.slice().reverse().forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = rowBuilder(item);
+    body.appendChild(tr);
+  });
+}
+
+function attachLogRowHandlers(s) {
+  const filtered = pairFilter(s.opportunity_log, activePair).slice().reverse();
+  document.querySelectorAll('#logBody tr').forEach((tr, i) => {
+    const item = filtered[i] || {};
+    tr.dataset.pair = item.pair || '';
+    tr.dataset.seriesIndex = item.series_index ?? '';
+    tr.addEventListener('click', () => {
+      selectedPoint = {
+        pair: tr.dataset.pair || null,
+        series_index: normalizeIndex(tr.dataset.seriesIndex)
       };
-
-      document.getElementById("liveStateBlock").textContent = JSON.stringify(stateText, null, 2);
-    }
-
-    function renderLiveChart(data) {
-      const pairKey = selectedLivePair || extractAvailablePairs(data)[0];
-      const zscoreHistory = data.zscore_history || {};
-      const seriesTimestamps = data.series_timestamps || data.timestamps || [];
-      const values = zscoreHistory[pairKey] || [];
-
-      document.getElementById("liveChartTitle").textContent = `ZScore ${keyToPretty(pairKey)}`;
-
-      liveZscoreChart = destroyChart(liveZscoreChart);
-      const ctx = document.getElementById("liveZscoreChart").getContext("2d");
-
-      liveZscoreChart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: seriesTimestamps.length ? seriesTimestamps.slice(-values.length) : values.map((_, i) => String(i + 1)),
-          datasets: [
-            {
-              label: `ZScore ${pairKey}`,
-              data: values,
-              borderWidth: 2,
-              tension: 0.15
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } }
-          },
-          scales: {
-            x: {
-              ticks: { color: "#9ca3af", maxTicksLimit: 12 },
-              grid: { color: "#374151" }
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "#374151" }
-            }
-          }
-        }
-      });
-    }
-
-    function renderOpportunityLog(rows) {
-      const tbody = document.querySelector("#liveOpportunityTable tbody");
-      tbody.innerHTML = "";
-
-      const list = Array.isArray(rows) ? rows.slice().reverse() : [];
-      if (!list.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="muted">Sin datos</td></tr>`;
-        return;
+      setActiveRow('logBody', tr);
+      if (stateCache) {
+        const source = getPaperEventsSource(stateCache);
+        renderLiveChart(stateCache, pairFilter(source.items, activePair));
       }
+    });
+  });
+}
 
-      list.forEach((row, idx) => {
-        const tr = document.createElement("tr");
-        const timestamp = row.timestamp || row.ts || row.time || "";
-        const pair = row.pair || row.pair_key || "";
-        const signal = row.signal || row.action || "";
-        const zscore = row.zscore ?? row.z_score ?? "";
-        const ratio = row.ratio ?? "";
-        const spread = row.spread ?? "";
-        const note = row.note || row.message || "";
+function attachPaperRowHandlers(s, paperItems) {
+  const reversed = (paperItems || []).slice().reverse();
+  const keys = getSeriesKeys(s);
+  const x = s.series_timestamps || [];
 
-        tr.innerHTML = `
-          <td>${idx + 1}</td>
-          <td>${timestamp}</td>
-          <td>${pair}</td>
-          <td>${signal}</td>
-          <td>${formatNumber(zscore, 4)}</td>
-          <td>${formatNumber(ratio, 6)}</td>
-          <td>${formatNumber(spread, 6)}</td>
-          <td>${note}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
+  document.querySelectorAll('#paperBody tr').forEach((tr, i) => {
+    const item = reversed[i] || {};
+    const pair = getEventPair(item, keys);
+    const idx = resolveEventIndex(item, x);
 
-    function renderHistoricalButtons() {
-      const container = document.getElementById("historicalPairButtons");
-      container.innerHTML = "";
+    tr.dataset.pair = keys.includes(pair) ? pair : '';
+    tr.dataset.seriesIndex = idx ?? '';
 
-      const pairs = ["AL30-GD30"];
-      pairs.forEach(key => {
-        const btn = document.createElement("button");
-        btn.className = "btn small" + (key === selectedHistoricalPair ? " active" : "");
-        btn.textContent = keyToPretty(key);
-        btn.onclick = async () => {
-          selectedHistoricalPair = key;
-          renderHistoricalButtons();
-          await loadHistory();
-        };
-        container.appendChild(btn);
-      });
-    }
+    tr.addEventListener('click', () => {
+      selectedPoint = {
+        pair: tr.dataset.pair || null,
+        series_index: normalizeIndex(tr.dataset.seriesIndex)
+      };
+      setActiveRow('paperBody', tr);
+      if (stateCache) {
+        const source = getPaperEventsSource(stateCache);
+        renderLiveChart(stateCache, pairFilter(source.items, activePair));
+      }
+    });
+  });
+}
 
-    async function loadHistory() {
-      const debug = document.getElementById("debugMessage");
-      debug.textContent = "Cargando histórico...";
+function renderPairHeader(s, pair, paperItems) {
+  const zscores = s.zscores || {};
+  const ratios = s.ratios || {};
+  const logs = pairFilter(s.opportunity_log, pair);
+  const alerts = pairFilter(s.alerts_sent, pair);
+  const positions = pairFilter(s.paper_positions, pair);
 
+  document.getElementById('pairTitle').textContent = pair || '-';
+  document.getElementById('pairSubtitle').textContent = `Vista separada del arbitraje ${pair || '-'}`;
+
+  document.getElementById('pairKpis').innerHTML = `
+    <div class="mini-kpi">
+      <div class="label">Ratio actual</div>
+      <div class="value">${fmt(ratios[pair], 8)}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Z-score actual</div>
+      <div class="value">${fmt(zscores[pair], 4)}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Logs</div>
+      <div class="value">${logs.length}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Paper events</div>
+      <div class="value">${paperItems.length}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Alertas</div>
+      <div class="value">${alerts.length}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Posiciones abiertas</div>
+      <div class="value">${positions.length}</div>
+    </div>
+  `;
+}
+
+async function loadHistoricalData() {
+  const r = await fetch('/api/history/phase1/al30-gd30?limit=2000');
+  if (!r.ok) throw new Error('No se pudo cargar histórico AL30/GD30');
+  historicalCache = await r.json();
+  return historicalCache;
+}
+
+function renderHistoricalView(hist) {
+  const rows = hist?.rows || [];
+  const x = rows.map(r => r.trade_date);
+  const ratio = rows.map(r => Number(r.ratio));
+  const z = rows.map(r => r.zscore_20 === null ? null : Number(r.zscore_20));
+  const bb = buildBollinger(ratio, 20, 2);
+
+  document.getElementById('histSubTitle').textContent =
+    rows.length ? `Desde ${rows[0].trade_date} hasta ${rows[rows.length - 1].trade_date} | ${rows.length} ruedas` : 'Sin datos históricos';
+
+  const last = rows.length ? rows[rows.length - 1] : null;
+  document.getElementById('histKpis').innerHTML = `
+    <div class="mini-kpi">
+      <div class="label">Último ratio</div>
+      <div class="value">${last ? fmt(last.ratio, 8) : '-'}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Último spread</div>
+      <div class="value">${last ? fmt(last.spread, 4) : '-'}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Último Z-Score 20</div>
+      <div class="value">${last ? fmt(last.zscore_20, 4) : '-'}</div>
+    </div>
+    <div class="mini-kpi">
+      <div class="label">Ruedas</div>
+      <div class="value">${rows.length}</div>
+    </div>
+  `;
+
+  Plotly.react(
+    'histRatioChart',
+    [
+      {
+        x, y: ratio, mode: 'lines', type: 'scatter', name: 'Ratio AL30/GD30',
+        line: { width: 3, color: '#60a5fa' }
+      },
+      {
+        x, y: bb.ma, mode: 'lines', type: 'scatter', name: 'MM 20',
+        line: { width: 3, color: '#22c55e' }
+      },
+      {
+        x, y: bb.upper, mode: 'lines', type: 'scatter', name: 'BB Superior',
+        line: { width: 2, color: '#ef4444', dash: 'dash' }
+      },
+      {
+        x, y: bb.lower, mode: 'lines', type: 'scatter', name: 'BB Inferior',
+        line: { width: 2, color: '#f59e0b', dash: 'dash' },
+        fill: 'tonexty',
+        fillcolor: 'rgba(245,158,11,0.15)'
+      }
+    ],
+    {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e5e7eb' },
+      margin:{ t:20, r:20, b:50, l:50 },
+      xaxis:{ title:'Fecha' },
+      yaxis:{ title:'Ratio' },
+      legend:{ orientation:'h' }
+    },
+    { responsive:true, displayModeBar:false }
+  );
+
+  Plotly.react(
+    'histZChart',
+    [
+      {
+        x, y: z, mode: 'lines', type: 'scatter', name: 'Z-Score 20',
+        line: { width: 3, color: '#60a5fa' }
+      }
+    ],
+    {
+      paper_bgcolor:'#111827',
+      plot_bgcolor:'#111827',
+      font:{ color:'#e5e7eb' },
+      margin:{ t:20, r:20, b:50, l:50 },
+      xaxis:{ title:'Fecha' },
+      yaxis:{ title:'Z-Score 20' },
+      legend:{ orientation:'h' },
+      shapes: [
+        { type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0, line:{ color:'#64748b', width:1, dash:'dot' } },
+        { type:'line', xref:'paper', x0:0, x1:1, y0:2, y1:2, line:{ color:'#7f1d1d', width:1, dash:'dash' } },
+        { type:'line', xref:'paper', x0:0, x1:1, y0:-2, y1:-2, line:{ color:'#7f1d1d', width:1, dash:'dash' } }
+      ]
+    },
+    { responsive:true, displayModeBar:false }
+  );
+
+  renderRows('histTableBody', rows, row => `
+    <td>${row.trade_date}</td>
+    <td>${fmt(row.left_close, 4)}</td>
+    <td>${fmt(row.right_close, 4)}</td>
+    <td>${fmt(row.ratio, 8)}</td>
+    <td>${fmt(row.spread, 4)}</td>
+    <td>${fmt(row.zscore_20, 4)}</td>
+  `, 'Sin histórico cargado');
+}
+
+function switchView(view) {
+  currentView = view;
+  saveActiveView(view);
+
+  document.getElementById('modeLiveBtn').classList.toggle('active', view === 'live');
+  document.getElementById('modeHistBtn').classList.toggle('active', view === 'history');
+
+  document.getElementById('liveView').classList.toggle('hidden', view !== 'live');
+  document.getElementById('historyView').classList.toggle('hidden', view !== 'history');
+  document.getElementById('liveControls').classList.toggle('hidden', view !== 'live');
+
+  if (view === 'history' && historicalCache) {
+    renderHistoricalView(historicalCache);
+  }
+}
+
+function renderAll(s) {
+  stateCache = s;
+
+  const paperSource = getPaperEventsSource(s);
+  activePair = getDefaultPair(s);
+  saveActivePair(activePair);
+
+  const filteredLogs = pairFilter(s.opportunity_log, activePair);
+  const filteredPaper = pairFilter(paperSource.items, activePair);
+  const filteredAlerts = pairFilter(s.alerts_sent, activePair);
+  const filteredPositions = pairFilter(s.paper_positions, activePair);
+
+  document.getElementById('modeLabel').textContent = `Modo: ${s.mode || '?'} | TZ: ${s.timezone || '-'} | Symbols: ${(s.symbols || []).length}`;
+  document.getElementById('storageLabel').textContent = `DB: ${s.db_path || '-'}`;
+
+  renderManualPairsList(s);
+  renderTabs(s);
+
+  if (currentView === 'live') {
+    renderPairHeader(s, activePair, filteredPaper);
+    renderRisk(s.risk_report || {});
+    renderNotes(s.notes || []);
+    renderLiveChart(s, filteredPaper);
+
+    renderRows('logBody', filteredLogs, item => `
+      <td>${item.time || '-'}</td>
+      <td>${item.pair || '-'}</td>
+      <td><span class="pill ${signalClass(item.signal)}">${item.signal || 'NO TRADE'}</span></td>
+      <td>${fmt(item.zscore,4)}</td>
+      <td>${fmt(item.edge_bps,2)}</td>
+      <td>${item.eligible === false ? (item.reject_reason || 'Rechazada') : 'OK'}</td>
+    `, 'Sin oportunidades para este par');
+
+    renderRows('paperBody', filteredPaper, item => `
+      <td>${getEventTime(item)}</td>
+      <td><span class="pill ${paperClass(getEventType(item))}">${getEventType(item)}</span></td>
+      <td>${getEventPair(item, getSeriesKeys(s))}</td>
+      <td>${getEventSide(item)}</td>
+      <td>${fmt(getEventPnl(item),2)}</td>
+    `, 'Sin eventos de paper trading para este par');
+
+    renderRows('alertsBody', filteredAlerts, item => `
+      <td>${item.time || '-'}</td>
+      <td>${item.pair || '-'}</td>
+      <td>${item.signal || '-'}</td>
+      <td>${fmt(item.zscore,4)}</td>
+      <td>${(item.channels || []).join(', ')}</td>
+    `, 'Sin alertas para este par');
+
+    renderRows('positionsBody', filteredPositions, item => `
+      <td>${item.pair || '-'}</td>
+      <td>${item.side || '-'}</td>
+      <td>${fmt(item.entry_zscore,4)}</td>
+      <td>${fmt(item.entry_ratio,8)}</td>
+      <td>${fmt(item.size_notional,2)}</td>
+    `, 'Sin posiciones abiertas para este par');
+
+    attachLogRowHandlers(s);
+    attachPaperRowHandlers(s, filteredPaper);
+  }
+
+  if (currentView === 'history' && historicalCache) {
+    renderHistoricalView(historicalCache);
+  }
+}
+
+async function loadState() {
+  const r = await fetch('/api/state');
+  if (!r.ok) throw new Error('No se pudo cargar /api/state');
+  return await r.json();
+}
+
+async function addPair() {
+  const left = document.getElementById('leftTickerInput').value.trim().toUpperCase();
+  const right = document.getElementById('rightTickerInput').value.trim().toUpperCase();
+
+  if (!left || !right) {
+    document.getElementById('debugBox').textContent = 'Completá ambos tickers.';
+    return;
+  }
+
+  const r = await fetch('/api/config/pairs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ left, right })
+  });
+
+  const data = await r.json();
+  if (!r.ok) {
+    document.getElementById('debugBox').textContent = data.detail || 'Error agregando par.';
+    return;
+  }
+
+  document.getElementById('leftTickerInput').value = '';
+  document.getElementById('rightTickerInput').value = '';
+  activePair = data.added || `${left}/${right}`;
+  saveActivePair(activePair);
+  document.getElementById('debugBox').textContent = '';
+  await refresh();
+}
+
+async function deletePair(left, right) {
+  const r = await fetch('/api/config/pairs', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ left, right })
+  });
+
+  const data = await r.json();
+  if (!r.ok) {
+    document.getElementById('debugBox').textContent = data.detail || 'Error eliminando par.';
+    return;
+  }
+
+  if (activePair === `${left}/${right}`) {
+    activePair = null;
+    saveActivePair('');
+  }
+
+  document.getElementById('debugBox').textContent = '';
+  await refresh();
+}
+
+async function refresh() {
+  try {
+    const data = await loadState();
+    stateCache = data;
+    if (!historicalCache) {
       try {
-        const res = await fetch("/api/history/phase1/al30-gd30?limit=2000", { cache: "no-store" });
-        const data = await res.json();
-        const rows = data.rows || [];
-
-        debug.textContent = `Histórico cargado: ${rows.length} filas`;
-        document.getElementById("historyHeaderTitle").textContent = `HISTORICO ${keyToPretty(selectedHistoricalPair)}`;
-
-        renderHistoryInfo(rows);
-        renderHistoryCharts(rows);
-        renderHistoryTable(rows);
-      } catch (err) {
-        debug.textContent = "Error cargando histórico: " + err;
-      }
+        historicalCache = await loadHistoricalData();
+      } catch (_) {}
     }
+    renderAll(data);
+  } catch (e) {
+    console.error(e);
+    document.getElementById('debugBox').textContent = 'Error cargando /api/state';
+  }
+}
 
-    function renderHistoryInfo(rows) {
-      const info = document.getElementById("historyInfo");
-      info.innerHTML = "";
+document.getElementById('addPairBtn').addEventListener('click', addPair);
+document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('leftTickerInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addPair();
+});
+document.getElementById('rightTickerInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addPair();
+});
 
-      if (!rows.length) {
-        info.innerHTML = `<span class="pill">Sin datos</span>`;
-        return;
-      }
+document.getElementById('modeLiveBtn').addEventListener('click', () => {
+  switchView('live');
+  if (stateCache) renderAll(stateCache);
+});
 
-      const first = rows[0];
-      const last = rows[rows.length - 1];
-
-      info.innerHTML = `
-        <span class="pill">Par: ${keyToPretty(selectedHistoricalPair)}</span>
-        <span class="pill">Filas: ${rows.length}</span>
-        <span class="pill">Desde: ${first.trade_date}</span>
-        <span class="pill">Hasta: ${last.trade_date}</span>
-        <span class="pill">Último Ratio: ${formatNumber(last.ratio, 6)}</span>
-        <span class="pill">Último ZScore20: ${formatNumber(last.zscore_20, 4)}</span>
-      `;
+document.getElementById('modeHistBtn').addEventListener('click', async () => {
+  switchView('history');
+  if (!historicalCache) {
+    try {
+      historicalCache = await loadHistoricalData();
+    } catch (e) {
+      document.getElementById('debugBox').textContent = 'No se pudo cargar histórico AL30/GD30';
+      return;
     }
+  }
+  renderHistoricalView(historicalCache);
+});
 
-    function renderHistoryCharts(rows) {
-      const labels = rows.map(r => r.trade_date);
-      const ratios = rows.map(r => Number(r.ratio));
-      const zscores = rows.map(r => r.zscore_20 === null || r.zscore_20 === undefined ? null : Number(r.zscore_20));
-      const stats = rollingStats(ratios, 20);
+currentView = loadActiveView();
+switchView(currentView);
 
-      historyRatioChart = destroyChart(historyRatioChart);
-      historyZscoreChart = destroyChart(historyZscoreChart);
-
-      const ratioCtx = document.getElementById("historyRatioChart").getContext("2d");
-      historyRatioChart = new Chart(ratioCtx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            { label: "Ratio", data: ratios, borderWidth: 2, tension: 0.12 },
-            { label: "MA20", data: stats.ma, borderWidth: 1.5, tension: 0.12 },
-            { label: "Upper BB", data: stats.upper, borderWidth: 1, tension: 0.12 },
-            { label: "Lower BB", data: stats.lower, borderWidth: 1, tension: 0.12 }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } }
-          },
-          scales: {
-            x: {
-              ticks: { color: "#9ca3af", maxTicksLimit: 18 },
-              grid: { color: "#374151" }
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "#374151" }
-            }
-          }
-        }
-      });
-
-      const zCtx = document.getElementById("historyZscoreChart").getContext("2d");
-      historyZscoreChart = new Chart(zCtx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            { label: "ZScore 20", data: zscores, borderWidth: 2, tension: 0.12 }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } }
-          },
-          scales: {
-            x: {
-              ticks: { color: "#9ca3af", maxTicksLimit: 18 },
-              grid: { color: "#374151" }
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "#374151" }
-            }
-          }
-        }
-      });
-    }
-
-    function renderHistoryTable(rows) {
-      const tbody = document.querySelector("#historyTable tbody");
-      tbody.innerHTML = "";
-
-      if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="9" class="muted">Sin datos</td></tr>`;
-        return;
-      }
-
-      const ratios = rows.map(r => Number(r.ratio));
-      const stats = rollingStats(ratios, 20);
-
-      rows.forEach((row, i) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.trade_date}</td>
-          <td>${formatNumber(row.left_close, 4)}</td>
-          <td>${formatNumber(row.right_close, 4)}</td>
-          <td>${formatNumber(row.ratio, 6)}</td>
-          <td>${formatNumber(row.spread, 6)}</td>
-          <td>${formatNumber(row.zscore_20, 4)}</td>
-          <td>${formatNumber(stats.ma[i], 6)}</td>
-          <td>${formatNumber(stats.upper[i], 6)}</td>
-          <td>${formatNumber(stats.lower[i], 6)}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    async function init() {
-      renderHistoricalButtons();
-      await Promise.all([loadLive(), loadHistory()]);
-      setInterval(loadLive, 5000);
-    }
-
-    init();
-  </script>
+refresh();
+setInterval(async () => {
+  if (currentView === 'live') {
+    await refresh();
+  }
+}, 2000);
+</script>
 </body>
 </html>
